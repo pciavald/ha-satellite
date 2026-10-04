@@ -284,10 +284,8 @@ async def main() -> Optional[Shutdown]:
     if args.colored_debug:
         args.debug = True
         _setup_logging(args)
-    elif args.debug:
-        logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, **_log_format(args))
 
     _LOGGER.debug(args)
     if args.list_input_devices:
@@ -796,6 +794,13 @@ def _advertised_address(bind_address: Optional[str], network_interface: Optional
 
     print(f"Advertising IP-Address: {detected}")
     return detected
+
+
+def _log_format(args: argparse.Namespace) -> Dict[str, str]:
+    """Timestamped lines (to the millisecond) under the audio engine, whose log file has no time of its own."""
+    if not (args.audio_input_socket or args.audio_output_socket or args.control_socket):
+        return {}
+    return {"format": "%(asctime)s.%(msecs)03d %(levelname)s:%(name)s:%(message)s", "datefmt": "%Y-%m-%d %H:%M:%S"}
 
 
 def _engine_cancels_echo(args: argparse.Namespace) -> bool:

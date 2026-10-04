@@ -236,7 +236,7 @@ class TestPreferencesFromArgs:
 
 
 # ---------------------------------------------------------------------------
-# Audio engine: streaming during the sounds
+# Audio engine: timestamped log lines and streaming during the sounds
 # ---------------------------------------------------------------------------
 
 
@@ -246,6 +246,28 @@ def _engine_args(**sockets):
     values = {"audio_input_socket": None, "audio_output_socket": None, "control_socket": None}
     values.update(sockets)
     return argparse.Namespace(**values)
+
+
+class TestEngineLogFormat:
+    def test_no_engine_keeps_the_default_format(self):
+        from linux_voice_assistant.__main__ import _log_format
+
+        assert _log_format(_engine_args()) == {}
+
+    def test_engine_lines_carry_the_time_to_the_millisecond(self):
+        import logging
+
+        from linux_voice_assistant.__main__ import _log_format
+
+        options = _log_format(_engine_args(audio_input_socket="/s", audio_output_socket="/s", control_socket="/s"))
+        formatter = logging.Formatter(options["format"], options["datefmt"])
+        record = logging.LogRecord("lva", logging.INFO, __file__, 1, "Wake word", None, None)
+        record.created = 1759622400.0421
+        record.msecs = 42.1
+
+        line = formatter.format(record)
+        assert line.endswith(".042 INFO:lva:Wake word")
+        assert line[:4].isdigit() and line[10] == " "
 
 
 class TestEngineCancelsEcho:
