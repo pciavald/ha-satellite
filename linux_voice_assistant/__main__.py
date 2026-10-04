@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
 import numpy as np
 import soundcard as sc
@@ -22,6 +22,7 @@ from .models import Preferences, ServerState, WakeWordType, initial_stop_word_th
 from .mpv_player import MpvMediaPlayer
 from .peripheral_api import LVAEvent, PeripheralAPIServer
 from .satellite import VoiceSatelliteProtocol
+from .shutdown import Shutdown
 from .util import (
     get_default_interface,
     get_default_ipv4,
@@ -42,7 +43,7 @@ _SOUNDS_DIR = _REPO_DIR / "sounds"
 # -----------------------------------------------------------------------------
 
 
-async def main() -> None:
+async def main() -> Optional[Shutdown]:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--name",
@@ -264,7 +265,7 @@ async def main() -> None:
         print("=" * 13)
         for idx, mic in enumerate(sc.all_microphones()):
             print(f"[{idx}]", mic.name)
-        return
+        return None
 
     if args.list_output_devices:
         from .player.libmpv import import_mpv
@@ -275,7 +276,7 @@ async def main() -> None:
 
         for speaker in player.audio_device_list:  # type: ignore
             print(speaker["name"] + ":", speaker["description"])
-        return
+        return None
 
     # Resolve network interface for mac-address detection
     if not args.network_interface:
@@ -495,6 +496,8 @@ async def main() -> None:
     # ESPHome TCP server (with retry on EADDRINUSE)
     # ------------------------------------------------------------------
     loop = asyncio.get_running_loop()
+    shutdown = Shutdown(loop)
+    shutdown.install()
     max_attempts = 15
     attempt = 1
     server = None
@@ -551,9 +554,11 @@ async def main() -> None:
     # ------------------------------------------------------------------
     # Audio processing thread
     # ------------------------------------------------------------------
+    audio_stop = threading.Event()
     process_audio_thread = threading.Thread(
         target=process_audio,
         args=(state, mic, args.audio_input_block_size),
+        kwargs={"stop": audio_stop, "on_error": lambda: shutdown.request_exit_threadsafe(1)},
         daemon=True,
     )
     process_audio_thread.start()
@@ -588,19 +593,31 @@ async def main() -> None:
             )
             await asyncio.sleep(args.peripheral_startup_wait)
 
-    try:
-        async with server:  # type: ignore[union-attr]
-            _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
-            await server.serve_forever()  # type: ignore[union-attr]
-    except KeyboardInterrupt:
-        pass
-    finally:
+    _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
+    await shutdown.wait()
+
+    async def close_server() -> None:
+        server.close()  # type: ignore[union-attr]
+
+    async def stop_audio() -> None:
+        audio_stop.set()
         state.audio_queue.put_nowait(None)
-        process_audio_thread.join()
+        await asyncio.to_thread(process_audio_thread.join, 2.0)
+
+    async def stop_peripheral_api() -> None:
         if peripheral_api is not None:
             await peripheral_api.stop()
 
+    await shutdown.cleanup(
+        [
+            ("zeroconf", discovery.async_close),
+            ("server", close_server),
+            ("peripheral API", stop_peripheral_api),
+            ("audio thread", stop_audio),
+        ]
+    )
     _LOGGER.debug("Server stopped")
+    return shutdown
 
 
 # -----------------------------------------------------------------------------
@@ -669,8 +686,18 @@ def _device_blocksize(block_size: int) -> Optional[int]:
     return None if sys.platform == "darwin" else block_size
 
 
-def process_audio(state: ServerState, mic, block_size: int):
-    """Process audio chunks from the microphone."""
+def process_audio(
+    state: ServerState,
+    mic,
+    block_size: int,
+    stop: Optional[threading.Event] = None,
+    on_error: Optional[Callable[[], None]] = None,
+):
+    """Process audio chunks from the microphone until stop is set.
+
+    A failure outside the per-block handler calls on_error, so the caller can
+    end the process instead of keeping a satellite that no longer hears.
+    """
     n_channels = state.audio_input_channels
 
     wake_words: List[Union[MicroWakeWord, OpenWakeWord]] = []
@@ -688,7 +715,7 @@ def process_audio(state: ServerState, mic, block_size: int):
     try:
         _LOGGER.debug("Opening audio input device: %s", mic.name)
         with mic.recorder(samplerate=16000, channels=n_channels, blocksize=_device_blocksize(block_size)) as mic_in:
-            while True:
+            while (stop is None) or (not stop.is_set()):
                 # Shape: (block_size, n_channels) for stereo, (block_size, 1) for mono.
                 raw = mic_in.record(block_size)  # float32, range [-1, 1]
                 mic_vol_scalar = max(0.1, min(1.0, state.mic_volume / 100.0))
@@ -881,14 +908,18 @@ def process_audio(state: ServerState, mic, block_size: int):
                     _LOGGER.exception("Unexpected error handling audio")
     except Exception:  # pylint: disable=broad-except
         _LOGGER.exception("Unexpected error processing audio")
-        sys.exit(1)
+        if on_error is None:
+            sys.exit(1)
+        on_error()
 
 
 # -----------------------------------------------------------------------------
 
 
 def run():
-    asyncio.run(main())
+    shutdown = asyncio.run(main())
+    if shutdown is not None:
+        shutdown.exit()
 
 
 if __name__ == "__main__":

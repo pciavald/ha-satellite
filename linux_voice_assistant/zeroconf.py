@@ -48,3 +48,8 @@ class HomeAssistantZeroconf:
         )
         await self._aiozc.async_register_service(service_info)
         _LOGGER.debug("Zeroconf discovery enabled: %s", service_info)
+
+    async def async_close(self) -> None:
+        """Withdraw the service (mDNS goodbye) and close zeroconf."""
+        await self._aiozc.async_close()
+        _LOGGER.debug("Zeroconf discovery closed")

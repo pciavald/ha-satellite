@@ -176,3 +176,14 @@ class TestRegisterServer:
 
         addresses = captured["kwargs"].get("addresses", [])
         assert socket.inet_aton("10.0.0.5") in addresses
+
+
+class TestClose:
+    @pytest.mark.asyncio
+    async def test_close_sends_goodbyes_through_zeroconf(self):
+        zc = make_zeroconf()
+        zc._mock_zc.async_close = AsyncMock()
+
+        await zc.async_close()
+
+        zc._mock_zc.async_close.assert_awaited_once_with()
