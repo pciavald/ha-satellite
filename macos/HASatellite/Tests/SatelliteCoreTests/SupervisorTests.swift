@@ -218,6 +218,8 @@ final class ConfigTests: XCTestCase {
       (#"{"python": "/p", "cwd": "/c", "args": [], "socket": "rel"}"#, "\"socket\" must be an absolute path"),
       (#"{"python": "/p", "cwd": "/c", "args": [], "agc": 1}"#, "\"agc\" must be true or false"),
       (#"{"python": "/p", "cwd": "/c", "args": [], "pythn": "/x"}"#, "unknown key \"pythn\" in satellite.json"),
+      (#"{"python": "/p", "cwd": "/c", "args": ["--name", "@NAME@"]}"#, "satellite.json still has the placeholder @NAME@: replace it with your value"),
+      (#"{"python": "/p", "cwd": "/c", "args": [], "env": {"LVA_LIBMPV_DIR": "@LIBMPV@"}}"#, "satellite.json still has the placeholder @LIBMPV@: replace it with your value"),
     ]
     for (text, message) in cases {
       XCTAssertThrowsError(try parse(text), text) { error in

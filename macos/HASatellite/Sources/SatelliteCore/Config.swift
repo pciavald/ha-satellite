@@ -103,6 +103,12 @@ public struct SatelliteConfig: Equatable, Sendable {
       }
       agc = flag
     }
+    // Left by `macos/build.sh config` for the values only the owner knows.
+    for value in [python, cwd] + strings + env.values.sorted() + [socket ?? ""] {
+      if let range = value.range(of: "@[A-Z_]+@", options: .regularExpression) {
+        throw ConfigError("satellite.json still has the placeholder \(value[range]): replace it with your value")
+      }
+    }
     return SatelliteConfig(python: python, cwd: cwd, args: strings, env: env, socket: socket, agc: agc)
   }
 
