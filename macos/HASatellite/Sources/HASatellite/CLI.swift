@@ -132,4 +132,117 @@ enum CLI {
     print(result == 0 ? "OK" : "FAILED")
     return result
   }
+
+  /// The measurement that chose voice processing: the microphone level in a
+  /// quiet room, then while 3 s of white noise at -20 dBFS play through the
+  /// same engine, once without and once with voice processing. The echo
+  /// removed is the difference of the levels while playing; fails below 15 dB.
+  static func echoTest() -> Int32 {
+    print("microphone: \(MicPermission.current.rawValue)")
+    print("output: \(Devices.defaultOutput().map { "\($0.name), \(Int($0.rate)) Hz" } ?? "none")")
+    guard MicPermission.current == .authorized else {
+      print("FAIL: the microphone is not authorized")
+      return 1
+    }
+    print("keep the room quiet; the noise plays twice")
+    guard let raw = EchoRun.measure(voiceProcessing: false), let voice = EchoRun.measure(voiceProcessing: true) else {
+      print("FAILED")
+      return 1
+    }
+    for (label, run) in [("no voice processing", raw), ("voice processing", voice)] {
+      print(String(format: "%@: ambient %.1f dBFS, playing %.1f dBFS, echo above the floor %+.1f dB", label, run.ambient, run.playing, run.playing - run.ambient))
+    }
+    let removed = raw.playing - voice.playing
+    print(String(format: "echo removed by voice processing: %.1f dB", removed))
+    if raw.playing - raw.ambient < 10 {
+      print("FAIL: the noise was barely heard without voice processing: turn the output volume up and run again")
+      return 1
+    }
+    guard removed >= 15 else {
+      print("FAIL: less than 15 dB removed")
+      return 1
+    }
+    print("OK")
+    return 0
+  }
+}
+
+/// One mode of the echo test: levels of channel 0 of the captured signal.
+private final class EchoRun: @unchecked Sendable {
+  private let lock = NSLock()
+  private var energy = 0.0
+  private var count = 0
+
+  var ambient = 0.0
+  var playing = 0.0
+
+  static func measure(voiceProcessing: Bool) -> EchoRun? {
+    let run = EchoRun()
+    let engine = AVAudioEngine()
+    let input = engine.inputNode
+    do {
+      if voiceProcessing {
+        // The app's settings (Engine.swift).
+        try input.setVoiceProcessingEnabled(true)
+        input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+        input.isVoiceProcessingAGCEnabled = false
+      }
+      input.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in run.add(buffer) }
+      let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+      let player = AVAudioPlayerNode()
+      engine.attach(player)
+      engine.connect(player, to: engine.mainMixerNode, format: format)
+      try engine.start()
+      defer {
+        player.stop()
+        input.removeTap(onBus: 0)
+        engine.stop()
+      }
+      Thread.sleep(forTimeInterval: 1)
+      run.ambient = run.window(1.5)
+      player.scheduleBuffer(noise(format: format, seconds: 3, dBFS: -20))
+      player.play()
+      Thread.sleep(forTimeInterval: 0.3)
+      run.playing = run.window(2.5)
+      return run
+    } catch {
+      print("FAIL: \(voiceProcessing ? "voice-processing" : "plain") engine: \(error)")
+      return nil
+    }
+  }
+
+  private func add(_ buffer: AVAudioPCMBuffer) {
+    guard let data = buffer.floatChannelData?[0] else { return }
+    var sum = 0.0
+    for i in 0..<Int(buffer.frameLength) { sum += Double(data[i]) * Double(data[i]) }
+    lock.lock()
+    energy += sum
+    count += Int(buffer.frameLength)
+    lock.unlock()
+  }
+
+  /// Level in dBFS over the next `seconds`.
+  private func window(_ seconds: TimeInterval) -> Double {
+    lock.lock()
+    energy = 0
+    count = 0
+    lock.unlock()
+    Thread.sleep(forTimeInterval: seconds)
+    lock.lock()
+    defer { lock.unlock() }
+    let rms = count > 0 ? (energy / Double(count)).squareRoot() : 0
+    return 20 * log10(max(rms, 1e-9))
+  }
+
+  /// Uniform white noise with the given RMS level.
+  private static func noise(format: AVAudioFormat, seconds: Double, dBFS: Double) -> AVAudioPCMBuffer {
+    let frames = AVAudioFrameCount(format.sampleRate * seconds)
+    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+    buffer.frameLength = frames
+    let amplitude = Float(pow(10, dBFS / 20) * 3.0.squareRoot())
+    for i in 0..<Int(frames) {
+      buffer.floatChannelData![0][i] = Float.random(in: -amplitude...amplitude)
+    }
+    return buffer
+  }
 }
