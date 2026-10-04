@@ -86,6 +86,10 @@ class HelperPlayer(AudioPlayer):
     in ERROR without a callback, as libmpv does. A connection thread keeps the
     socket open and reconnects with backoff; play() while it is down fails at
     once instead of blocking the pipeline.
+
+    pause() flushes what the engine has queued, up to its ``buffer_ms``
+    (200 ms with the macOS app), and resume() goes on with the first chunk
+    not yet sent, so up to 200 ms of the item are skipped across a pause.
     """
 
     def __init__(
