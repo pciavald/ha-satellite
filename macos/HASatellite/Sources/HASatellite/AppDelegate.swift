@@ -383,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
         }
         return
       } catch {
-        alert.informativeText = "\(error). Use 1 to \(SatelliteName.maxLength) characters."
+        alert.informativeText = "Not renamed: \(error)."
       }
     }
   }
