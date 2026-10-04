@@ -32,13 +32,13 @@ def resolve_state(monkeypatch, tmp_path, argv: list, **patches) -> dict:
     defaults = {
         "ServerState": capture,
         "MpvMediaPlayer": MagicMock(),
-        "get_default_interface": MagicMock(return_value="eth0"),
-        "get_default_ipv4": MagicMock(return_value="192.168.1.20"),
         "get_mac_address": MagicMock(return_value="DC:A6:32:01:02:03"),
     }
     defaults.update(patches)
     for name, value in defaults.items():
         monkeypatch.setattr(lva_main, name, value)
+    monkeypatch.setattr(lva_main.network, "default_interface", lambda: "eth0")
+    monkeypatch.setattr(lva_main.network, "interface_ipv4", lambda interface: "192.168.1.20")
     monkeypatch.setattr(lva_main.sc, "default_microphone", lambda: FakeMicrophone())
 
     with pytest.raises(_StateBuilt) as built:

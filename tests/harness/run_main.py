@@ -71,7 +71,7 @@ def main() -> None:
         patch.object(lva_main.sc, "default_microphone", return_value=FakeMicrophone(fail=mode == "audio-fail")),
         patch.object(lva_main, "MpvMediaPlayer", MagicMock()),
         patch.object(lva_main, "HomeAssistantZeroconf", FakeZeroconf),
-        patch.object(lva_main, "get_default_interface", return_value="lo"),
+        patch.object(lva_main.network, "default_interface", return_value="lo"),
         patch.object(lva_main, "get_mac_address", return_value="02:00:00:00:00:01"),
     ):
         lva_main.run()

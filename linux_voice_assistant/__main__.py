@@ -18,17 +18,13 @@ from getmac import get_mac_address  # type: ignore
 from pymicro_wakeword import MicroWakeWord, MicroWakeWordFeatures
 from pyopen_wakeword import OpenWakeWord, OpenWakeWordFeatures
 
+from . import network
 from .models import Preferences, ServerState, WakeWordType, initial_stop_word_threshold
 from .mpv_player import MpvMediaPlayer
 from .peripheral_api import LVAEvent, PeripheralAPIServer
 from .satellite import VoiceSatelliteProtocol
 from .shutdown import Shutdown
-from .util import (
-    get_default_interface,
-    get_default_ipv4,
-    get_esphome_version,
-    get_version,
-)
+from .util import get_esphome_version, get_version
 from .wake_word import find_available_wake_words, load_stop_model, load_wake_models
 from .webrtc import WebRTCProcessor
 from .zeroconf import HomeAssistantZeroconf
@@ -286,8 +282,11 @@ async def main() -> Optional[Shutdown]:
     # Resolve network interface for mac-address detection
     if not args.network_interface:
         print("No network interface specified, try to detect default interface")
-        network_interface = get_default_interface()
+        network_interface = await network.wait_for_default_interface()
         print(f"Default interface detected: {network_interface}")
+        if network_interface is None and network.uses_route_backend():
+            _LOGGER.error("No usable network address found")
+            sys.exit(1)
     else:
         print("Network interface specified")
         network_interface = args.network_interface
@@ -296,7 +295,7 @@ async def main() -> Optional[Shutdown]:
     # Resolve ip_address where the application will be listening
     if not args.host:
         print("No host (ip-address) specified, try to detect IP-Address")
-        host_ip_address = get_default_ipv4(network_interface)
+        host_ip_address = network.interface_ipv4(network_interface)
         print(f"IP-Address detected: {host_ip_address}")
     else:
         print("Host specified")
@@ -432,9 +431,9 @@ async def main() -> Optional[Shutdown]:
     state = ServerState(
         name=device_name,
         friendly_name=friendly_name,
-        network_interface=network_interface,
+        network_interface=network_interface,  # type: ignore[arg-type]
         mac_address=mac_address,
-        ip_address=host_ip_address,
+        ip_address=host_ip_address,  # type: ignore[arg-type]
         version=version,
         esphome_version=esphome_version,
         audio_queue=Queue(),
@@ -576,7 +575,7 @@ async def main() -> Optional[Shutdown]:
         port=args.port,
         name=state.name,
         mac_address=state.mac_address,
-        host_ip_address=host_ip_address,
+        host_ip_address=host_ip_address,  # type: ignore[arg-type]
     )
     await discovery.register_server()
 

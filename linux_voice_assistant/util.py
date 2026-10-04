@@ -5,8 +5,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Optional
 
-# netifaces lib is from netifaces2
-import netifaces
+# netifaces lib is from netifaces2, installed on Linux only (see network.py)
+try:
+    import netifaces
+except ImportError:
+    netifaces = None  # type: ignore[assignment]
 
 # Cache for version to avoid repeated file reading
 _version_cache: Optional[str] = None
