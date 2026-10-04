@@ -4,25 +4,21 @@
 default:
     @just --list
 
-# Build and sign HA Satellite.app (Developer ID from the keychain or LVA_SIGN_IDENTITY)
-mac-build *args:
-    macos/build.sh build {{args}}
+# Build the self-contained HA Satellite.app (Python, dependencies, libmpv) and sign it
+mac-build:
+    macos/build.sh build
+
+# Check the built app: nothing loaded from outside it, the bundled satellite loads
+mac-check:
+    macos/build.sh check
 
 # Swift unit tests
 mac-test:
     macos/build.sh test
 
-# Create .venv (Python 3.13) and install the pinned macOS dependencies
-mac-venv:
-    macos/build.sh venv
-
-# Build, sign, set up the venv, install to ~/Applications, write satellite.json, open
+# Build, check, copy to ~/Applications and open
 mac-install:
     macos/build.sh install
-
-# Write satellite.json (--force --name NAME --mac MAC --libmpv DIR)
-mac-config *args:
-    macos/build.sh config {{args}}
 
 # Unregister the login item, quit and delete the app (--purge: settings and logs too)
 mac-uninstall *args:
