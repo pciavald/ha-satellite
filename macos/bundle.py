@@ -145,7 +145,9 @@ def relink(target: Path, args, changes, rpaths):
     for rpath in rpaths:
         args += ["-delete_rpath", rpath]
     if args:
-        subprocess.run(["install_name_tool", *args, str(target)], check=True, stderr=subprocess.DEVNULL)
+        result = subprocess.run(["install_name_tool", *args, str(target)], check=False, capture_output=True, text=True)
+        if result.returncode:
+            sys.exit(f"install_name_tool failed on {target}: {result.stderr.strip()}")
     _ident, loads, left = load_commands(target)
     bad = [ref for ref in loads if not ref.startswith(SYSTEM + ("@loader_path/",))]
     if bad or left:

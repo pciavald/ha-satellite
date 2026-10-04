@@ -136,7 +136,8 @@ bundle_python() {
   # Not from pip's wheel cache, which may hold a build for another FFmpeg.
   local av_pin
   av_pin="$(grep -E -o '^av==[^ ]+' "$here/requirements.txt")"
-  swift_env PKG_CONFIG_PATH="$pkgconfig" "$python" -I -m pip install --disable-pip-version-check --no-compile --no-cache-dir \
+  # Header padding: bundle.py rewrites its FFmpeg paths to longer ones.
+  swift_env PKG_CONFIG_PATH="$pkgconfig" LDFLAGS="-Wl,-headerpad_max_install_names" "$python" -I -m pip install --disable-pip-version-check --no-compile --no-cache-dir \
     --no-deps --no-binary av --progress-bar off "$av_pin"
   "$python" -I -m pip install --disable-pip-version-check --no-warn-script-location --no-compile \
     --only-binary :all: --progress-bar off -r "$here/requirements.txt"
