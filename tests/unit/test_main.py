@@ -1,5 +1,8 @@
 """Unit tests for __main__.py — process_audio logic and argument parsing helpers."""
 
+import argparse
+import logging
+
 import numpy as np
 import pytest
 
@@ -241,8 +244,6 @@ class TestPreferencesFromArgs:
 
 
 def _engine_args(**sockets):
-    import argparse
-
     values = {"audio_input_socket": None, "audio_output_socket": None, "control_socket": None}
     values.update(sockets)
     return argparse.Namespace(**values)
@@ -252,13 +253,9 @@ class TestEngineLogFormat:
     def test_no_engine_keeps_the_default_format(self):
         from linux_voice_assistant.__main__ import _log_format
 
-        import logging
-
         assert _log_format(_engine_args()) == (logging.BASIC_FORMAT, None)
 
     def test_engine_lines_carry_the_time_to_the_millisecond(self):
-        import logging
-
         from linux_voice_assistant.__main__ import _log_format
 
         formatter = logging.Formatter(*_log_format(_engine_args(audio_input_socket="/s", audio_output_socket="/s", control_socket="/s")))
