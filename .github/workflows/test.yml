@@ -26,9 +26,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
         python: ["3.11", "3.12", "3.13"]
-        include:
-          - os: macos-latest
-            python: "3.13"
 
     steps:
       - name: Checkout
@@ -45,23 +42,11 @@ jobs:
       # PulseAudio daemon with its automatic null sink stands in for the sound
       # server, because soundcard connects to it when it is imported on Linux.
       - name: Install Linux system packages
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libmpv-dev mpv libasound2-plugins pulseaudio pulseaudio-utils
           pulseaudio --start --exit-idle-time=-1
           pactl info
-
-      # CI only: libmpv comes from Homebrew on the macOS runner.
-      - name: Install macOS system packages
-        if: runner.os == 'macOS'
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
-        run: |
-          brew install mpv
-          echo "LIBMPV_DIR=$(brew --prefix)/lib" >> "$GITHUB_ENV"
 
       - name: Install the project
         run: |
@@ -84,26 +69,68 @@ jobs:
           path: junit.xml
           if-no-files-found: warn
 
-  # The macOS menu bar app (macos/HASatellite): Swift unit tests, including the
-  # protocol fixtures shared with the Python side, and an unsigned bundle.
-  swift:
-    name: macOS app (Swift)
+  # The macOS port in one job: the menu bar app (Swift unit tests, including
+  # the protocol fixtures shared with Python, and an unsigned bundle) and the
+  # Python suite installed from the pins the app's venv uses.
+  macos:
+    name: macOS (app and Python 3.13)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: macos/requirements.txt
 
       - name: Show the toolchain
         run: |
           xcodebuild -version
           swift --version
 
-      - name: Build
-        run: swift build --package-path macos/HASatellite
+      # CI only: libmpv comes from Homebrew on the runner.
+      - name: Install libmpv
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          brew install mpv
+          echo "LIBMPV_DIR=$(brew --prefix)/lib" >> "$GITHUB_ENV"
+
+      - name: Install the project from macos/requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          { python -m pip install -r macos/requirements.txt && python -m pip install -e ".[dev]"; } 2>&1 | tee install.log || { tail -n 40 install.log | python .github/annotate.py install; exit 1; }
+          python -m pip check
+
+      - name: Build the app
+        run: swift build --package-path macos/HASatellite 2>&1 | tee swift-build.log || { grep -E "error:" swift-build.log | head -n 40 | python .github/annotate.py "swift build"; exit 1; }
 
       - name: Run Swift tests
-        run: swift test --package-path macos/HASatellite
+        run: swift test --package-path macos/HASatellite 2>&1 | tee swift-test.log || { grep -E "error:|failed|Fatal|crashed" swift-test.log | head -n 40 | python .github/annotate.py "swift test"; exit 1; }
 
       - name: Assemble the app bundle (not signed)
         run: macos/build.sh build --no-sign
+
+      # DYLD_* variables are stripped when a SIP-protected binary such as bash
+      # starts, so the library path is exported inside the step itself.
+      - name: Run Python unit tests
+        run: |
+          export DYLD_FALLBACK_LIBRARY_PATH="$LIBMPV_DIR"
+          python -m pytest tests/unit -ra --junitxml=junit.xml 2>&1 | tee pytest.log || { tail -n 60 pytest.log | python .github/annotate.py pytest; exit 1; }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-macos-py3.13
+          path: junit.xml
+          if-no-files-found: warn
