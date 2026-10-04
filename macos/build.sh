@@ -19,15 +19,22 @@ usage: macos/build.sh <command> [options]
 
   build [--no-sign]        build and sign $build_app (default command)
   test                     run the Swift unit tests
-  install                  build, copy to $install_dir, write satellite.json if missing, open
-  config [--force] [--name NAME]
-                           write $support/satellite.json from satellite.json.example
+  venv                     create $repo/.venv (Python 3.13) if missing and
+                           install the pinned macos/requirements.txt into it
+  install                  build, venv, copy to $install_dir, write satellite.json
+                           if missing, open the app once no placeholder is left
+  config [--force] [--name NAME] [--mac MAC] [--libmpv DIR]
+                           write $support/satellite.json from satellite.json.example;
+                           values not given stay as @NAME@, @MAC@, @LIBMPV@
   uninstall [--purge]      unregister the login item, quit, delete the app
                            (--purge also deletes $support and the logs)
   status                   print the app's status (login item, permissions, satellite)
+  selftest [--no-play]     capture and play through voice processing (app quit)
+  echo-test                measure the echo removed by voice processing (app quit)
 
-Signing identity: LVA_SIGN_IDENTITY (default "-", ad hoc: the microphone grant
-is then lost at every rebuild).
+Signing identity: LVA_SIGN_IDENTITY, else the keychain's "Developer ID
+Application" identity, else ad hoc ("-": the microphone grant is lost at every
+rebuild; install refuses it unless LVA_SIGN_IDENTITY=- is set).
 EOF
 }
 
@@ -39,6 +46,18 @@ swift_env() {
   [[ "${SDKROOT:-}" == /nix/* ]] && args+=(-u SDKROOT)
   [[ -n "${NIX_APPLE_SDK_VERSION:-}" ]] && args+=(-u MACOSX_DEPLOYMENT_TARGET)
   env ${args[@]+"${args[@]}"} "$@"
+}
+
+# LVA_SIGN_IDENTITY, else the first Developer ID Application identity, else "-".
+sign_identity() {
+  if [[ -n "${LVA_SIGN_IDENTITY:-}" ]]; then
+    echo "$LVA_SIGN_IDENTITY"
+    return
+  fi
+  local found
+  found="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n -E 's/^ *[0-9]+\) [0-9A-F]+ "(Developer ID Application: .*)"$/\1/p' | head -n 1)"
+  echo "${found:--}"
 }
 
 build() {
@@ -67,10 +86,12 @@ build() {
     echo "built $build_app (not signed)"
     return
   fi
-  local identity="${LVA_SIGN_IDENTITY:--}"
+  local identity
+  identity="$(sign_identity)"
   if [[ "$identity" == "-" ]]; then
     echo "warning: ad hoc signature: the microphone grant will not survive a rebuild (set LVA_SIGN_IDENTITY)" >&2
   fi
+  echo "signing with: $identity"
   codesign --force --options runtime --timestamp=none \
     --entitlements "$package/Resources/entitlements.plist" \
     --sign "$identity" "$build_app"
@@ -83,19 +104,55 @@ run_tests() {
   swift_env /usr/bin/xcrun swift test --package-path "$package"
 }
 
-mac_address() {
-  local device
-  device="$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2; exit}')"
-  ifconfig "${device:-en0}" 2>/dev/null | awk '/ether/{print $2; exit}'
+# The app runs <repo>/.venv/bin/python (satellite.json.example). Packages
+# already there are kept (the dev tools of ./script/setup --dev); the pins of
+# macos/requirements.txt are installed over them.
+venv() {
+  local python="$repo/.venv/bin/python"
+  if command -v uv >/dev/null; then
+    [[ -x "$python" ]] || uv venv --python 3.13 "$repo/.venv"
+    uv pip install --python "$python" -r "$here/requirements.txt"
+    uv pip install --python "$python" --no-deps -e "$repo"
+  else
+    if [[ ! -x "$python" ]]; then
+      command -v python3.13 >/dev/null || { echo "uv or python3.13 is needed to create $repo/.venv" >&2; exit 1; }
+      python3.13 -m venv "$repo/.venv"
+    fi
+    "$python" -m pip install -r "$here/requirements.txt"
+    "$python" -m pip install --no-deps -e "$repo"
+  fi
+  local version
+  version="$("$python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  echo "venv: $python (Python $version)"
+  [[ "$version" == "3.13" ]] || echo "warning: the pins are made for Python 3.13, $repo/.venv has $version" >&2
+}
+
+placeholders() {
+  grep -o -E '@[A-Z_]+@' "$1" | sort -u | tr '\n' ' ' || true
+}
+
+config_help() {
+  cat <<EOF
+Replace the placeholders in $1:
+  @NAME@    the satellite's name in Home Assistant, for example "MacBook"
+  @MAC@     the built-in Wi-Fi MAC address, which keeps the device identity
+            when the Mac moves between Wi-Fi and a dock. Read it with
+              networksetup -listallhardwareports | grep -A 2 'Wi-Fi'
+            (the "Ethernet Address" line)
+  @LIBMPV@  the directory holding libmpv.dylib, for example \$(brew --prefix)/lib
+            or the lib directory of nixpkgs mpv-unwrapped
+or write it again: macos/build.sh config --force --name NAME --mac MAC --libmpv DIR
+EOF
 }
 
 config() {
-  local force=0 name
-  name="$(scutil --get ComputerName 2>/dev/null || hostname -s)"
+  local force=0 name="@NAME@" mac="@MAC@" libmpv="${LVA_LIBMPV_DIR:-@LIBMPV@}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --force) force=1 ;;
       --name) name="$2"; shift ;;
+      --mac) mac="$2"; shift ;;
+      --libmpv) libmpv="$2"; shift ;;
       *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -103,17 +160,11 @@ config() {
   local target="$support/satellite.json"
   if [[ -e "$target" && $force == 0 ]]; then
     echo "$target exists (use --force to replace it)"
-    return
-  fi
-  local mac libmpv="${LVA_LIBMPV_DIR:-}"
-  mac="$(mac_address)"
-  if [[ -z "$libmpv" ]]; then
-    echo "warning: LVA_LIBMPV_DIR is not set: music playback needs libmpv, edit LVA_LIBMPV_DIR in $target" >&2
-  fi
-  [[ -x "$repo/.venv/bin/python" ]] || echo "warning: $repo/.venv/bin/python does not exist yet" >&2
-  mkdir -p "$support"
-  chmod 700 "$support"
-  REPO="$repo" SUPPORT="$support" NAME="$name" MAC="$mac" LIBMPV="$libmpv" /usr/bin/python3 - "$here/satellite.json.example" "$target" <<'PY'
+  else
+    [[ -x "$repo/.venv/bin/python" ]] || echo "warning: $repo/.venv/bin/python does not exist yet (macos/build.sh venv)" >&2
+    mkdir -p "$support"
+    chmod 700 "$support"
+    REPO="$repo" SUPPORT="$support" NAME="$name" MAC="$mac" LIBMPV="$libmpv" /usr/bin/python3 - "$here/satellite.json.example" "$target" <<'PY'
 import json, os, sys
 text = open(sys.argv[1]).read()
 for key in ("REPO", "SUPPORT", "NAME", "MAC", "LIBMPV"):
@@ -124,7 +175,11 @@ with open(sys.argv[2], "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
 PY
-  echo "wrote $target"
+    echo "wrote $target"
+  fi
+  if [[ -n "$(placeholders "$target")" ]]; then
+    config_help "$target"
+  fi
 }
 
 quit_app() {
@@ -148,13 +203,24 @@ install() {
     echo "$others" >&2
     exit 1
   fi
+  if [[ "$(sign_identity)" == "-" && "${LVA_SIGN_IDENTITY:-}" != "-" ]]; then
+    echo "no Developer ID Application identity in the keychain: set LVA_SIGN_IDENTITY (\"-\" for ad hoc)" >&2
+    exit 1
+  fi
   build
+  venv
   quit_app
   mkdir -p "$install_dir"
   rm -rf "$installed_app"
   ditto "$build_app" "$installed_app"
   echo "installed $installed_app"
   config
+  local left
+  left="$(placeholders "$support/satellite.json")"
+  if [[ -n "$left" ]]; then
+    echo "not opened: replace ${left% } in $support/satellite.json, then: open \"$installed_app\""
+    return
+  fi
   open "$installed_app"
 }
 
@@ -183,10 +249,19 @@ To also forget the permissions:
 EOF
 }
 
-status() {
+app_binary() {
   local app="$installed_app"
   [[ -x "$app/Contents/MacOS/HASatellite" ]] || app="$build_app"
-  "$app/Contents/MacOS/HASatellite" --status
+  echo "$app/Contents/MacOS/HASatellite"
+}
+
+# The device tests open their own voice-processing engine: not while the app runs.
+device_test() {
+  if pgrep -x HASatellite >/dev/null; then
+    echo "quit HA Satellite first (menu > Quit)" >&2
+    exit 1
+  fi
+  "$(app_binary)" "$@"
 }
 
 command="${1:-build}"
@@ -194,10 +269,13 @@ command="${1:-build}"
 case "$command" in
   build) build "$@" ;;
   test) run_tests ;;
+  venv) venv ;;
   install) install ;;
   config) config "$@" ;;
   uninstall) uninstall "$@" ;;
-  status) status ;;
+  status) "$(app_binary)" --status ;;
+  selftest) device_test --selftest "$@" ;;
+  echo-test) device_test --echo-test ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

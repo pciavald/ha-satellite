@@ -1,5 +1,5 @@
 {
-  "_comment": "Copied to ~/Library/Application Support/ha-satellite/satellite.json by 'macos/build.sh config'. Paths must be absolute: the app starts at login with a minimal environment. The app adds no flag of its own, so the same command runs by hand.",
+  "_comment": "Written to ~/Library/Application Support/ha-satellite/satellite.json by 'macos/build.sh config', which fills @REPO@ and @SUPPORT@; @NAME@, @MAC@ and @LIBMPV@ are yours to set (the app refuses placeholders). Paths must be absolute: the app starts at login with a minimal environment. The app adds no flag of its own, so the same command runs by hand.",
   "python": "@REPO@/.venv/bin/python",
   "cwd": "@REPO@",
   "args": [
