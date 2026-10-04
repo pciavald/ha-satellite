@@ -398,11 +398,7 @@ async def main() -> None:
         preferences.thinking_sound = 1
 
     if args.mic_auto_gain or args.mic_noise_suppression:
-        try:
-            import webrtc_noise_gain  # type: ignore[import-untyped] # noqa: F401
-        except ImportError:
-            _LOGGER.exception("Extras for webrtc are not installed")
-            sys.exit(1)
+        _require_webrtc()
 
     if args.mic_volume > 0.0:
         preferences.mic_volume = args.mic_volume
@@ -642,6 +638,18 @@ def _setup_logging(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------------
 
 
+def _require_webrtc() -> None:
+    """Exit when mic auto gain or noise suppression is requested without webrtc-noise-gain."""
+    try:
+        import webrtc_noise_gain  # type: ignore[import-untyped] # noqa: F401
+    except ImportError:
+        if sys.platform == "darwin":
+            _LOGGER.error("--mic-auto-gain and --mic-noise-suppression are not available on this platform")
+        else:
+            _LOGGER.exception("Extras for webrtc are not installed")
+        sys.exit(1)
+
+
 def _input_channels(requested: int, mic) -> int:
     """Return the number of channels to capture, at most what the microphone has."""
     available = getattr(mic, "channels", None)
@@ -675,6 +683,7 @@ def process_audio(state: ServerState, mic, block_size: int):
 
     last_active: Optional[float] = None
     webrtc: Optional[WebRTCProcessor] = None
+    webrtc_usable = True
 
     try:
         _LOGGER.debug("Opening audio input device: %s", mic.name)
@@ -698,14 +707,19 @@ def process_audio(state: ServerState, mic, block_size: int):
                 agc = state.preferences.mic_auto_gain or 0
                 ns = state.preferences.mic_noise_suppression or 0
 
-                if agc > 0 or ns > 0:
-                    if webrtc is None:
-                        webrtc = WebRTCProcessor(agc_level=agc, ns_level=ns)
+                if (agc > 0 or ns > 0) and webrtc_usable:
+                    try:
+                        if webrtc is None:
+                            webrtc = WebRTCProcessor(agc_level=agc, ns_level=ns)
+                        else:
+                            webrtc.update_settings(agc, ns)
+                    except ImportError:
+                        _LOGGER.warning("webrtc-noise-gain is not installed, ignoring mic auto gain and noise suppression")
+                        webrtc_usable = False
                     else:
-                        webrtc.update_settings(agc, ns)
-                    audio_chunk = webrtc.process(audio_chunk)
-                    if not audio_chunk:
-                        continue
+                        audio_chunk = webrtc.process(audio_chunk)
+                        if not audio_chunk:
+                            continue
 
                 if state.satellite is None or not hasattr(state.satellite, "_is_streaming_audio"):
                     continue

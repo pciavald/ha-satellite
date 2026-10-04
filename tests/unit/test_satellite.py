@@ -44,14 +44,16 @@ class TestInit:
     def test_mic_gain_entity_created(self, tmp_path):
         from linux_voice_assistant.entity import MicSettingEntity
 
-        sat = make_satellite(tmp_path)
+        with patch("linux_voice_assistant.webrtc.AVAILABLE", True):
+            sat = make_satellite(tmp_path)
         assert sat.state.mic_gain_entity is not None
         assert isinstance(sat.state.mic_gain_entity, MicSettingEntity)
 
     def test_mic_noise_entity_created(self, tmp_path):
         from linux_voice_assistant.entity import MicSettingEntity
 
-        sat = make_satellite(tmp_path)
+        with patch("linux_voice_assistant.webrtc.AVAILABLE", True):
+            sat = make_satellite(tmp_path)
         assert sat.state.mic_noise_suppression_entity is not None
         assert isinstance(sat.state.mic_noise_suppression_entity, MicSettingEntity)
 
