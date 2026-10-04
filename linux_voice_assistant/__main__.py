@@ -267,9 +267,9 @@ async def main() -> None:
         return
 
     if args.list_output_devices:
-        from mpv import MPV
+        from .player.libmpv import import_mpv
 
-        player = MPV()
+        player = import_mpv().MPV()
         print("Audio output devices:")
         print("=" * 14)
 
