@@ -125,26 +125,22 @@ class TestRouteBackend:
         route_backend.source = source
         assert network.find_local_address().ip == "192.168.1.30"
 
-    @pytest.mark.usefixtures("route_backend")
-    def test_no_route_falls_back(self):
+    def test_no_route_falls_back(self, route_backend):
         route_backend.source = OSError(51, "Network is unreachable")
         assert network.find_local_address().interface == "en0"
 
-    @pytest.mark.usefixtures("route_backend")
-    def test_fallback_order_is_the_interface_index(self):
+    def test_fallback_order_is_the_interface_index(self, route_backend):
         route_backend.source = OSError(51, "Network is unreachable")
         route_backend.adapters = [adapter("en5", 9, "172.16.0.5/16"), adapter("en1", 4, "192.168.2.2/24")]
         assert network.find_local_address().interface == "en1"
 
-    @pytest.mark.usefixtures("route_backend")
-    def test_public_only_addresses_are_not_guessed(self):
+    def test_public_only_addresses_are_not_guessed(self, route_backend):
         route_backend.source = OSError(51, "Network is unreachable")
         route_backend.adapters = [adapter("en0", 4, "203.0.113.9/24"), adapter("utun0", 5, "10.8.0.2/24")]
         assert network.find_local_address() is None
         assert network.default_interface() is None
 
-    @pytest.mark.usefixtures("route_backend")
-    def test_route_source_on_an_unknown_interface_falls_back(self):
+    def test_route_source_on_an_unknown_interface_falls_back(self, route_backend):
         route_backend.source = "10.9.9.9"
         assert network.find_local_address().ip == "192.168.1.30"
 
