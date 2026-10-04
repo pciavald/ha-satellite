@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -101,3 +101,23 @@ class TestLibmpvDir:
         assert "LD_LIBRARY_PATH" not in os.environ
         assert "DYLD_FALLBACK_LIBRARY_PATH" not in os.environ
         assert "only used on macOS" in caplog.text
+
+
+class TestMpvOptions:
+    @staticmethod
+    def build_player(monkeypatch, platform):
+        fake_mpv = MagicMock()
+        monkeypatch.setattr(sys, "platform", platform)
+        with patch.object(libmpv, "import_mpv", return_value=fake_mpv):
+            libmpv.LibMpvPlayer()
+        return fake_mpv.MPV.return_value.__setitem__
+
+    def test_linux_keeps_the_silent_stream(self, monkeypatch):
+        setitem = self.build_player(monkeypatch, "linux")
+        setitem.assert_any_call("audio-stream-silence", True)
+        setitem.assert_any_call("audio-buffer", 0.8)
+
+    def test_darwin_closes_the_output_when_idle(self, monkeypatch):
+        setitem = self.build_player(monkeypatch, "darwin")
+        setitem.assert_any_call("audio-stream-silence", False)
+        setitem.assert_any_call("audio-buffer", 0.8)

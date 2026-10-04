@@ -88,7 +88,8 @@ class LibMpvPlayer(AudioPlayer):
         # silence when idle.  This eliminates the per-play sink re-initialisation
         # penalty entirely, so back-to-back short sounds (wakeup → TTS, mute →
         # unmute) never lose their first samples regardless of system load.
-        self._mpv["audio-stream-silence"] = True
+        # Not on macOS: an open CoreAudio output keeps the Mac from idle sleep.
+        self._mpv["audio-stream-silence"] = sys.platform != "darwin"
 
         # Callback Handling
         self._done_callback: Optional[Callable[[], None]] = None
