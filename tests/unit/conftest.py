@@ -1,6 +1,7 @@
 """Shared test fixtures/helpers for the unit test suite."""
 
 import tempfile
+import tomllib
 from dataclasses import MISSING, fields
 from pathlib import Path
 from queue import Queue
@@ -106,3 +107,17 @@ def make_satellite(tmp_path=None, state_overrides=None):
     satellite._writelines = MagicMock()
     satellite._loop = None
     return satellite
+
+
+def install_requirements(platform: str) -> set:
+    """Names of the dependencies pyproject.toml installs on platform ("linux" or "darwin")."""
+    from packaging.requirements import Requirement
+
+    environment = {"sys_platform": platform, "platform_system": {"linux": "Linux", "darwin": "Darwin"}[platform], "os_name": "posix"}
+    project = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    names = set()
+    for line in project["dependencies"]:
+        requirement = Requirement(line)
+        if requirement.marker is None or requirement.marker.evaluate(environment):
+            names.add(requirement.name.lower())
+    return names

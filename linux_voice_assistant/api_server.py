@@ -22,12 +22,16 @@ from aioesphomeapi.api_pb2 import (  # type: ignore[attr-defined]
 from aioesphomeapi.core import MESSAGE_TYPE_TO_PROTO
 from google.protobuf import message
 
+from .network import enable_keepalive
+
 PROTO_TO_MESSAGE_TYPE = {v: k for k, v in MESSAGE_TYPE_TO_PROTO.items()}
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class APIServer(asyncio.Protocol):
+    # Set on accepted connections by --follow-network
+    tcp_keepalive: bool = False
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -77,6 +81,11 @@ class APIServer(asyncio.Protocol):
 
             self.send_messages(msgs)
 
+    def abort(self) -> None:
+        """Drop the connection at once, so the client reconnects (e.g. after an address change)."""
+        if self._transport is not None:
+            self._transport.abort()
+
     def send_messages(self, msgs: Iterable[message.Message]):
         if self._writelines is None or not msgs:
             return
@@ -92,6 +101,8 @@ class APIServer(asyncio.Protocol):
     def connection_made(self, transport) -> None:
         self._transport = transport
         self._writelines = transport.writelines
+        if self.tcp_keepalive:
+            enable_keepalive(transport.get_extra_info("socket"))
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:

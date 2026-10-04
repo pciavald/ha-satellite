@@ -1,6 +1,6 @@
 """Run the real main() with fake audio, players, network and zeroconf.
 
-Used by subprocess tests: ``python -m tests.harness.run_main MODE DIR``.
+Used by subprocess tests: ``python -m tests.harness.run_main MODE DIR [ARGS...]``.
 MODE is ``serve`` (a working microphone) or ``audio-fail`` (the microphone
 fails to open). Nothing is advertised and nothing leaves the loopback.
 """
@@ -46,6 +46,7 @@ class FakeZeroconf:
         self.kwargs = kwargs
 
     async def register_server(self) -> None:
+        say(f"zeroconf interfaces={self.kwargs.get('interfaces')!r}")
         say("registered")
 
     async def async_close(self) -> None:
@@ -65,6 +66,7 @@ def main() -> None:
         f"{work_dir}/preferences.json",
         "--download-dir",
         f"{work_dir}/downloads",
+        *sys.argv[3:],
     ]
     with (
         patch.object(sys, "argv", argv),

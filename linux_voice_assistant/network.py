@@ -170,3 +170,23 @@ def _is_usable(ip: str) -> bool:
 def _is_private(ip: str) -> bool:
     address = ipaddress.ip_address(ip)
     return any(address in network for network in _PRIVATE_NETWORKS)
+
+
+def physical_ipv4_addresses() -> List[str]:
+    """IPv4 addresses of every non-virtual interface (for zeroconf with --follow-network)."""
+    return [address.ip for address in _ipv4_addresses() if not is_virtual(address.interface) and _is_usable(address.ip)]
+
+
+def enable_keepalive(sock: Optional[socket.socket], idle: int = 30, interval: int = 10, count: int = 3) -> None:
+    """Turn on TCP keepalive so a peer that vanished (e.g. during sleep) is noticed."""
+    if sock is None:
+        return
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    # TCP_KEEPIDLE on Linux, TCP_KEEPALIVE (same meaning) on macOS
+    idle_option = getattr(socket, "TCP_KEEPIDLE", None) or getattr(socket, "TCP_KEEPALIVE", None)
+    if idle_option is not None:
+        sock.setsockopt(socket.IPPROTO_TCP, idle_option, idle)
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+    if hasattr(socket, "TCP_KEEPCNT"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)

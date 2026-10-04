@@ -2,17 +2,13 @@
 
 import ipaddress
 import sys
-import tomllib
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from packaging.requirements import Requirement
 
 from linux_voice_assistant import network, util
-
-_REPO_DIR = Path(__file__).resolve().parents[2]
+from tests.unit.conftest import install_requirements
 
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="netifaces2 is installed and used on Linux only")
 darwin_only = pytest.mark.skipif(sys.platform != "darwin", reason="the route lookup backend is what macOS uses")
@@ -217,24 +213,13 @@ class TestMain:
 
 
 class TestDependencies:
-    @staticmethod
-    def requirements(platform):
-        environment = {"sys_platform": platform, "platform_system": {"linux": "Linux", "darwin": "Darwin"}[platform], "os_name": "posix"}
-        project = tomllib.loads((_REPO_DIR / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-        names = set()
-        for line in project["dependencies"]:
-            requirement = Requirement(line)
-            if requirement.marker is None or requirement.marker.evaluate(environment):
-                names.add(requirement.name.lower())
-        return names
-
     def test_netifaces2_on_linux_only(self):
-        assert "netifaces2" in self.requirements("linux")
-        assert "netifaces2" not in self.requirements("darwin")
+        assert "netifaces2" in install_requirements("linux")
+        assert "netifaces2" not in install_requirements("darwin")
 
     def test_ifaddr_everywhere(self):
-        assert "ifaddr" in self.requirements("linux")
-        assert "ifaddr" in self.requirements("darwin")
+        assert "ifaddr" in install_requirements("linux")
+        assert "ifaddr" in install_requirements("darwin")
 
 
 @darwin_only

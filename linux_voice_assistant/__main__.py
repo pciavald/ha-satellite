@@ -20,6 +20,7 @@ from pyopen_wakeword import OpenWakeWord, OpenWakeWordFeatures
 
 from . import network
 from .models import Preferences, ServerState, WakeWordType, initial_stop_word_threshold
+from .monitor import NetworkMonitor
 from .mpv_player import MpvMediaPlayer
 from .peripheral_api import LVAEvent, PeripheralAPIServer
 from .satellite import VoiceSatelliteProtocol
@@ -172,6 +173,11 @@ async def main() -> Optional[Shutdown]:
     parser.add_argument(
         "--network-interface",
         help="Network interface the application listens on (default: auto-detected by gateway)",
+    )
+    parser.add_argument(
+        "--follow-network",
+        action="store_true",
+        help="Follow address changes and system sleep: reconnect Home Assistant and announce again over mDNS (addresses are followed with --host 0.0.0.0)",
     )
     parser.add_argument(
         "--mac-address",
@@ -528,10 +534,16 @@ async def main() -> Optional[Shutdown]:
         _LOGGER.critical("Program will exit immediately - fix the error above first!")
         sys.exit(1)
 
+    def create_protocol() -> VoiceSatelliteProtocol:
+        protocol = VoiceSatelliteProtocol(state)
+        if args.follow_network:
+            protocol.tcp_keepalive = True
+        return protocol
+
     while attempt <= max_attempts:
         try:
             server = await loop.create_server(
-                lambda: VoiceSatelliteProtocol(state),
+                create_protocol,
                 host=host_ip_address,
                 port=args.port,
             )
@@ -579,8 +591,25 @@ async def main() -> Optional[Shutdown]:
         name=state.name,
         mac_address=state.mac_address,
         host_ip_address=advertised_ip_address,  # type: ignore[arg-type]
+        interfaces=(network.physical_ipv4_addresses() or None) if args.follow_network else None,
     )
     await discovery.register_server()
+
+    monitor: Optional[NetworkMonitor] = None
+    monitor_task: Optional[asyncio.Task] = None
+    if args.follow_network:
+        follow_address = host_ip_address == "0.0.0.0"
+        if not follow_address:
+            _LOGGER.warning("--follow-network follows address changes only with --host 0.0.0.0, it will only announce again after sleep")
+        monitor = NetworkMonitor(
+            discovery,
+            connections=lambda: state.connections,
+            find_address=lambda: network.interface_ipv4(args.network_interface or network.default_interface()),
+            address=advertised_ip_address,
+            follow_address=follow_address,
+            on_address=lambda ip: setattr(state, "ip_address", ip),
+        )
+        monitor_task = asyncio.create_task(monitor.run())
 
     # ------------------------------------------------------------------
     # Start peripheral API and signal "getting started" to peripherals
@@ -606,6 +635,12 @@ async def main() -> Optional[Shutdown]:
     _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
     await shutdown.wait()
 
+    async def stop_monitor() -> None:
+        if monitor_task is not None:
+            monitor_task.cancel()
+        if monitor is not None:
+            await monitor.stop()
+
     async def close_server() -> None:
         server.close()  # type: ignore[union-attr]
 
@@ -620,6 +655,7 @@ async def main() -> Optional[Shutdown]:
 
     await shutdown.cleanup(
         [
+            ("network monitor", stop_monitor),
             ("zeroconf", discovery.async_close),
             ("server", close_server),
             ("peripheral API", stop_peripheral_api),

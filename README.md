@@ -76,7 +76,7 @@ For all other users, we have different installation methods available (Docker, s
 ```sh
 usage: __main__.py [-h] [--name NAME] [--audio-input-device AUDIO_INPUT_DEVICE] [--list-input-devices] [--audio-input-block-size AUDIO_INPUT_BLOCK_SIZE] [--audio-output-device AUDIO_OUTPUT_DEVICE] [--music-output-device MUSIC_OUTPUT_DEVICE] [--list-output-devices] [--wake-word-dir WAKE_WORD_DIR]  [--mic-auto-gain] [--mic-noise-suppression]
                    [--wake-model WAKE_MODEL] [--stop-model STOP_MODEL] [--download-dir DOWNLOAD_DIR] [--refractory-seconds REFRACTORY_SECONDS] [--wakeup-sound WAKEUP_SOUND] [--timer-finished-sound TIMER_FINISHED_SOUND] [--processing-sound PROCESSING_SOUND]
-                   [--mute-sound MUTE_SOUND] [--unmute-sound UNMUTE_SOUND] [--preferences-file PREFERENCES_FILE] [--host HOST] [--network-interface NETWORK_INTERFACE] [--mac-address MAC_ADDRESS] [--port PORT] [--enable-thinking-sound] [--listen-during-wake-sound] [--debug]
+                   [--mute-sound MUTE_SOUND] [--unmute-sound UNMUTE_SOUND] [--preferences-file PREFERENCES_FILE] [--host HOST] [--network-interface NETWORK_INTERFACE] [--mac-address MAC_ADDRESS] [--follow-network] [--port PORT] [--enable-thinking-sound] [--listen-during-wake-sound] [--debug]
 ```
 
 | Parameter                       | Description                                                   | Default                              |
@@ -106,6 +106,7 @@ usage: __main__.py [-h] [--name NAME] [--audio-input-device AUDIO_INPUT_DEVICE] 
 | `--preferences-file`            | Path to preferences JSON file                                 | `preferences.json`                   |
 | `--host`                        | IP-Address for ESPHome server, use 0.0.0.0 for all (the detected address is advertised) | Autodetected |
 | `--network-interface`           | Network interface for ESPHome server                          | Autodetected                         |
+| `--follow-network`              | Reconnect and announce again after sleep or an address change | False                                |
 | `--mac-address`                 | MAC address identifying the device in Home Assistant          | MAC of the network interface         |
 | `--port`                        | Port for ESPHome server                                       | 6053                                 |
 | `--enable-thinking-sound`       | Enable thinking sound on startup                              | False                                |

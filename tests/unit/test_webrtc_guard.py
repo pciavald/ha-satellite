@@ -2,19 +2,14 @@
 
 import logging
 import sys
-import tomllib
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from packaging.requirements import Requirement
 
 import linux_voice_assistant.__main__ as lva_main
 from linux_voice_assistant import webrtc
-from tests.unit.conftest import make_satellite, make_state
+from tests.unit.conftest import install_requirements, make_satellite, make_state
 from tests.unit.test_audio_input import FakeMicrophone, run_process_audio
-
-_REPO_DIR = Path(__file__).resolve().parents[2]
 
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="webrtc-noise-gain is installed on Linux only")
 darwin_only = pytest.mark.skipif(sys.platform != "darwin", reason="checks the macOS install, runs on macOS only")
@@ -35,23 +30,12 @@ def _entities(satellite) -> list:
     return [(type(entity).__name__, entity.key, entity.object_id) for entity in satellite.state.entities if not isinstance(entity, MagicMock)]
 
 
-def _requirements(platform: str) -> set:
-    environment = {"sys_platform": platform, "platform_system": {"linux": "Linux", "darwin": "Darwin"}[platform], "os_name": "posix"}
-    project = tomllib.loads((_REPO_DIR / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    names = set()
-    for line in project["dependencies"]:
-        requirement = Requirement(line)
-        if requirement.marker is None or requirement.marker.evaluate(environment):
-            names.add(requirement.name.lower())
-    return names
-
-
 class TestDependencyMarkers:
     def test_linux_installs_webrtc_noise_gain(self):
-        assert "webrtc-noise-gain" in _requirements("linux")
+        assert "webrtc-noise-gain" in install_requirements("linux")
 
     def test_macos_does_not_install_webrtc_noise_gain(self):
-        assert "webrtc-noise-gain" not in _requirements("darwin")
+        assert "webrtc-noise-gain" not in install_requirements("darwin")
 
 
 class TestEntities:

@@ -103,6 +103,7 @@ class TestLinuxCliDefaults:
         assert args.stop_model == "stop"
         assert args.output_only is False
         assert args.mac_address is None
+        assert args.follow_network is False
 
     def test_linux_cli_still_accepts_dual_channel_capture(self, monkeypatch):
         assert _parse_cli(monkeypatch, ["--audio-input-channels", "2"]).audio_input_channels == 2
