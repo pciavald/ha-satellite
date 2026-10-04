@@ -69,6 +69,10 @@ For Raspberry Pi users, we provide a prebuild image that can be flashed to a SD 
 
 For all other users, we have different installation methods available (Docker, systemd), each with its own dedicated instructions. See [Linux-Voice-Assistant - Installation](docs/install.md). 
 
+**macOS (this fork)**
+
+An Apple Silicon Mac (macOS 15 or later) can be a satellite with its built-in microphone and speakers. `HA Satellite.app`, a menu bar app in [`macos/`](macos/README.md), captures the microphone through Apple's voice processing (echo cancellation), plays text-to-speech and sounds through the same engine, and runs LVA as a child process connected to it with `--audio-input-socket`, `--audio-output-socket` and `--control-socket`. `just mac-install` (or `macos/build.sh install`) builds and signs the app, creates the Python venv and writes the app's configuration. While listening, the Mac does not go to sleep on its own; turning off Listen for Wake Word in the menu lets it sleep. See [macos/README.md](macos/README.md) for installation, permissions, the menu, sleep and battery, and [macos/TESTING.md](macos/TESTING.md) for the end-to-end checks. Linux installs are not affected.
+
 ### Parameter overview
 
 💡 **Note:** There is an [environment variable](docs/install_application.md#environment-variables-reference) for each parameter if you use docker or systemd based setup.
