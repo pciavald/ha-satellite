@@ -18,6 +18,9 @@ jobs:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +66,7 @@ jobs:
       - name: Install the project
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" 2>&1 | tee install.log || { tail -n 40 install.log | python .github/annotate.py install; exit 1; }
           python -c "import sys; assert sys.version.startswith('${{ matrix.python }}.'), sys.version"
 
       # DYLD_* variables are stripped when a SIP-protected binary such as bash
@@ -71,7 +74,7 @@ jobs:
       - name: Run unit tests
         run: |
           if [ -n "${LIBMPV_DIR:-}" ]; then export DYLD_FALLBACK_LIBRARY_PATH="$LIBMPV_DIR"; fi
-          python -m pytest tests/unit -ra --junitxml=junit.xml
+          python -m pytest tests/unit -ra --junitxml=junit.xml 2>&1 | tee pytest.log || { tail -n 60 pytest.log | python .github/annotate.py pytest; exit 1; }
 
       - name: Upload test results
         if: always()
