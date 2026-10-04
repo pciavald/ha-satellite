@@ -35,6 +35,8 @@ dependencies = [
     "types-protobuf",
     "websockets==12",
     "webrtc-noise-gain>=1,<2; sys_platform == 'linux'",
+    # Decodes TTS for --audio-output-socket, only used with the macOS app
+    "av>=14,<20; sys_platform == 'darwin'",
 ]
 dynamic = ["version"]
 
