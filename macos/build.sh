@@ -29,7 +29,9 @@ usage: macos/build.sh <command> [options]
 
   build                    build the self-contained $build_app: the app, Python
                            $python_version, the pinned requirements.txt, LVA and libmpv
-                           (LVA_LIBMPV_DIR, else Homebrew's), signed (default command)
+                           (LVA_LIBMPV_DIR, else Homebrew's), PyAV built against
+                           libmpv's FFmpeg (LVA_FFMPEG_PKGCONFIG, else Homebrew's
+                           ffmpeg), signed (default command)
   check [APP]              check a built app: nothing loaded from outside it, the
                            bundled satellite imports and loads its native parts
   test                     run the Swift unit tests
@@ -124,9 +126,18 @@ bundle_python() {
   archive="$(fetch_python)"
   local resources="$app/Contents/Resources"
   local root="$resources/python"
-  local python
+  local python pkgconfig
   python="$(bundled_python "$app")"
+  pkgconfig="$(ffmpeg_pkgconfig)"
   tar -xzf "$archive" -C "$resources"
+  # PyAV from source: its wheel carries its own FFmpeg, a second copy next to
+  # libmpv's in one process (duplicate Objective-C classes, two decoders);
+  # built against libmpv's FFmpeg, bundle_libmpv relinks it to Frameworks.
+  # Not from pip's wheel cache, which may hold a build for another FFmpeg.
+  local av_pin
+  av_pin="$(grep -E -o '^av==[^ ]+' "$here/requirements.txt")"
+  swift_env PKG_CONFIG_PATH="$pkgconfig" "$python" -I -m pip install --disable-pip-version-check --no-compile --no-cache-dir \
+    --no-deps --no-binary av --progress-bar off "$av_pin"
   "$python" -I -m pip install --disable-pip-version-check --no-warn-script-location --no-compile \
     --only-binary :all: --progress-bar off -r "$here/requirements.txt"
   "$python" -I -m pip uninstall --disable-pip-version-check -y -q pip
@@ -152,9 +163,27 @@ bundle_python() {
   echo "bundled Python $python_version ($(du -sh "$root" | cut -f 1)) and LVA"
 }
 
+# pkg-config files of the FFmpeg libmpv uses, for building PyAV against it:
+# LVA_FFMPEG_PKGCONFIG (with LVA_LIBMPV_DIR), else Homebrew's ffmpeg.
+ffmpeg_pkgconfig() {
+  local dir="${LVA_FFMPEG_PKGCONFIG:-}"
+  if [[ -z "$dir" ]] && command -v brew >/dev/null; then
+    dir="$(brew --prefix ffmpeg)/lib/pkgconfig"
+  fi
+  if [[ -z "$dir" || ! -e "$dir/libavcodec.pc" ]]; then
+    echo "libavcodec.pc not found${dir:+ in $dir}: brew install mpv, or set LVA_FFMPEG_PKGCONFIG" >&2
+    exit 1
+  fi
+  if ! command -v pkg-config >/dev/null; then
+    echo "pkg-config not found: brew install pkgconf" >&2
+    exit 1
+  fi
+  echo "$dir"
+}
+
 # Contents/Frameworks: libmpv and the libraries it needs, from LVA_LIBMPV_DIR
-# or Homebrew (brew install mpv); LVA finds it through LVA_LIBMPV_DIR, which
-# the app sets.
+# or Homebrew (brew install mpv), and PyAV's modules relinked to the same
+# FFmpeg; LVA finds libmpv through LVA_LIBMPV_DIR, which the app sets.
 bundle_libmpv() {
   local app="$1" dir="${LVA_LIBMPV_DIR:-}"
   if [[ -z "$dir" ]] && command -v brew >/dev/null; then
@@ -164,7 +193,16 @@ bundle_libmpv() {
     echo "libmpv.dylib not found${dir:+ in $dir}: brew install mpv, or set LVA_LIBMPV_DIR" >&2
     exit 1
   fi
-  "$(bundled_python "$app")" -I -B "$here/bundle.py" libmpv "$dir/libmpv.dylib" "$app/Contents/Frameworks"
+  local python site
+  python="$(bundled_python "$app")"
+  site="$("$python" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+  if [[ -d "$site/av/.dylibs" ]]; then
+    echo "$site/av/.dylibs: PyAV was installed from its wheel, with its own FFmpeg" >&2
+    exit 1
+  fi
+  local modules=()
+  while IFS= read -r -d '' module; do modules+=("$module"); done < <(find "$site/av" -name '*.so' -print0)
+  "$python" -I -B "$here/bundle.py" libmpv "$dir/libmpv.dylib" "$app/Contents/Frameworks" "${modules[@]}"
 }
 
 # Inside-out: libraries and extension modules, the interpreter, then the app.

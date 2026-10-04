@@ -96,14 +96,15 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # libmpv from Homebrew: for the Python tests, and copied into the app.
+      # libmpv from Homebrew: for the Python tests, and copied into the app
+      # with its FFmpeg, which the app's PyAV is built against (pkgconf).
       - name: Install libmpv
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
-          brew install mpv
+          brew install mpv pkgconf
           echo "LIBMPV_DIR=$(brew --prefix)/lib" >> "$GITHUB_ENV"
 
       - name: Install the project from macos/requirements.txt
