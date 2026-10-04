@@ -260,10 +260,12 @@ public final class Hub: @unchecked Sendable {
       connection.close()
       return
     }
+    // Replied before taking the queue, which a voice-processing engine start
+    // holds for up to two seconds; frames wait in the socket until then.
+    connection.send(Hello.playReply())
     queue.sync {
       plays[name]?.connection.close()
       plays[name] = (connection, session)
-      connection.send(Hello.playReply())
       audio.attachPlay(session)
       log("play:\(name) connected (\(format.sample.rawValue), \(format.rate) Hz, \(format.channels) ch)")
     }
@@ -286,11 +288,11 @@ public final class Hub: @unchecked Sendable {
   }
 
   private func serveControl(_ connection: Connection, _ hello: ClientHello) {
+    connection.send(Hello.controlReply(helperVersion: helperVersion))
     queue.sync {
       controlConnection?.close()
       controlConnection = connection
       control.connect(lvaVersion: hello.lvaVersion)
-      connection.send(Hello.controlReply(helperVersion: helperVersion))
       audio.update { $0.controlConnected = true }
       log("control client connected (LVA \(hello.lvaVersion ?? "unknown"))")
       publish()
