@@ -172,6 +172,7 @@ Environment=XDG_RUNTIME_DIR="/run/user/<replace_with_your_user_id>"
 Environment=PULSE_COOKIE="/home/pi/linux-voice-assistant/tmp_pulse_cookie"
 Environment=PREFERENCES_FILE="/home/pi/linux-voice-assistant/preferences.json"
 # Environment=NETWORK_INTERFACE="eth0"
+# Environment=MAC_ADDRESS="aa:bb:cc:dd:ee:ff"
 # Environment=HOST="0.0.0.0"
 # Environment=PORT="6053"
 # Environment=AUDIO_INPUT_DEVICE="default"
@@ -266,6 +267,7 @@ The following variables can be configured in the `.env` or in the service file:
 | `LIST_DEVICES` | (optional) | Set to "1" to list audio devices instead of starting |
 | `PREFERENCES_FILE` | (optional) | Path to a custom preferences JSON file |
 | `NETWORK_INTERFACE` | Autodetected | network card for server |
+| `MAC_ADDRESS` | MAC of the network card | MAC address identifying the device in Home Assistant, keeps the same device when the network card changes |
 | `HOST` | Autodetected | API server IP-Address, can be 0.0.0.0 for all interfaces, but only one network card works for MAC-ADDRESS and ESP protocol |
 | `PORT` | `6053` | API server port |
 | `AUDIO_INPUT_DEVICE` | Autodetected | Audio input device name |

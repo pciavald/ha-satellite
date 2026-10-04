@@ -177,6 +177,11 @@ async def main() -> Optional[Shutdown]:
         "--network-interface",
         help="Network interface the application listens on (default: auto-detected by gateway)",
     )
+    parser.add_argument(
+        "--mac-address",
+        type=_mac_address,
+        help="MAC address that identifies the device in Home Assistant (default: the network interface's)",
+    )
     # Note that default port is also set in docker-entrypoint.sh
     parser.add_argument(
         "--port",
@@ -299,7 +304,10 @@ async def main() -> Optional[Shutdown]:
         host_ip_address = args.host
 
     # Resolve mac
-    if not (mac_address := get_mac_address(interface=network_interface)):
+    if args.mac_address:
+        mac_address = args.mac_address
+        print(f"Using MAC address: {mac_address}")
+    elif not (mac_address := get_mac_address(interface=network_interface)):
         print("No Mac address was found, app stopped.")
         sys.exit(1)
     mac_address_clean = mac_address.replace(":", "").lower()
@@ -653,6 +661,14 @@ def _setup_logging(args: argparse.Namespace) -> None:
 
 
 # -----------------------------------------------------------------------------
+
+
+def _mac_address(value: str) -> str:
+    """Parse aa:bb:cc:dd:ee:ff, AA-BB-CC-DD-EE-FF or aabbccddeeff into lower-case colon form."""
+    digits = value.strip().replace(":", "").replace("-", "").lower()
+    if len(digits) != 12 or any(char not in "0123456789abcdef" for char in digits):
+        raise argparse.ArgumentTypeError(f"invalid MAC address: {value!r}")
+    return ":".join(digits[i : i + 2] for i in range(0, 12, 2))
 
 
 def _require_webrtc() -> None:

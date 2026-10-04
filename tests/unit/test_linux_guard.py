@@ -102,6 +102,7 @@ class TestLinuxCliDefaults:
         assert args.wake_model == "okay_nabu"
         assert args.stop_model == "stop"
         assert args.output_only is False
+        assert args.mac_address is None
 
     def test_linux_cli_still_accepts_dual_channel_capture(self, monkeypatch):
         assert _parse_cli(monkeypatch, ["--audio-input-channels", "2"]).audio_input_channels == 2
