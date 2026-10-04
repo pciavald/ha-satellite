@@ -30,6 +30,11 @@ func makeAddress(_ path: String) throws -> sockaddr_un {
 /// One accepted (or, in tests, connected) Unix stream socket with framing.
 /// Sends are serialized by a lock; reads belong to one thread.
 public final class Connection: @unchecked Sendable {
+  /// A send blocked this long closes the connection: the peer is stuck. The
+  /// Python side uses the same value, above the 3 s a play connection may
+  /// wait for an engine (`PlaySession.outputTimeout`) without reading.
+  public static let sendTimeout: TimeInterval = 5
+
   public let fd: Int32
   private let sendLock = NSLock()
   private var parser = FrameParser()
@@ -40,6 +45,8 @@ public final class Connection: @unchecked Sendable {
     self.fd = fd
     var on: Int32 = 1
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+    var timeout = timeval(tv_sec: Int(Self.sendTimeout), tv_usec: 0)
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
   }
 
   deinit {

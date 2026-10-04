@@ -95,7 +95,7 @@ class HelperPlayer(AudioPlayer):
         decode: Decoder = decode_pcm,
         backoff: Tuple[float, float] = (1.0, 30.0),
         connect_timeout: float = 5.0,
-        send_timeout: float = 2.0,
+        send_timeout: float = 5.0,
         flush_timeout: float = 0.5,
     ) -> None:
         self._log = logging.getLogger(self.__class__.__name__)
@@ -332,7 +332,9 @@ class HelperPlayer(AudioPlayer):
             self._serve(connection)
 
     def _serve(self, connection: Connection) -> None:
-        # Bounds sendall, so a stuck engine surfaces as an error instead of a hang
+        # Bounds sendall, so a stuck engine surfaces as an error instead of a
+        # hang; the engine itself waits up to 3 s for an output without reading
+        # and uses the same 5 s limit for its own sends
         connection.settimeout(self._send_timeout)
         self._connection = connection
         self._connected.set()
