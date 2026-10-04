@@ -57,7 +57,7 @@ class MpvMediaPlayer:
                 self._player.stop(for_replacement=True)
             self._done_callback = None
 
-        self._log.info("Playing %d URL(s): %s", len(urls), urls[0])
+        self._log.info("Playing %d URL(s) with %s: %s", len(urls), type(self._player).__name__, urls[0])
 
         # Store playlist and callback
         self._playlist = urls
