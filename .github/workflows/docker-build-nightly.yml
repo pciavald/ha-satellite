@@ -1,10 +1,13 @@
 ---
 name: Build main
 
+# Disabled on the fork until it publishes its own images; restore the trigger below.
 on:
-  push:
-    branches:
-      - "main"
+  workflow_dispatch:
+# on:
+#   push:
+#     branches:
+#       - "main"
 
 env:
   REGISTRY: ghcr.io

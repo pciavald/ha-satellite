@@ -63,14 +63,6 @@ jobs:
           brew install mpv
           echo "LIBMPV_DIR=$(brew --prefix)/lib" >> "$GITHUB_ENV"
 
-      # webrtc-noise-gain has no macOS wheel and its sdist fails to build with
-      # setuptools 84 ("run() must precede build_extension()").
-      - name: Build webrtc-noise-gain from source
-        if: runner.os == 'macOS'
-        run: |
-          python -m pip install "setuptools<84" wheel
-          python -m pip install --no-build-isolation "webrtc-noise-gain>=1,<2"
-
       - name: Install the project
         run: |
           python -m pip install --upgrade pip
