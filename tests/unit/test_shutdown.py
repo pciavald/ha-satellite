@@ -209,13 +209,13 @@ class TestProcessExit:
         try:
             _wait_for(lines, "registered")
             process.send_signal(signal.SIGTERM)
+            _wait_for(lines, "goodbye", timeout=6)
             process.send_signal(signal.SIGINT)
             process.wait(timeout=6)
         finally:
             process.kill()
 
         assert process.returncode == -signal.SIGTERM
-        assert "goodbye" in _drain(lines)
 
     def test_audio_failure_exits_with_status_1(self, tmp_path):
         process, lines = _start_harness("audio-fail", tmp_path)

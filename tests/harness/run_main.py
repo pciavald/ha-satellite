@@ -5,6 +5,7 @@ MODE is ``serve`` (a working microphone) or ``audio-fail`` (the microphone
 fails to open). Nothing is advertised and nothing leaves the loopback.
 """
 
+import asyncio
 import sys
 import time
 from unittest.mock import MagicMock, patch
@@ -51,6 +52,8 @@ class FakeZeroconf:
 
     async def async_close(self) -> None:
         say("goodbye")
+        # Keeps the shutdown going long enough for a test to send a second signal
+        await asyncio.sleep(0.5)
 
 
 def main() -> None:
