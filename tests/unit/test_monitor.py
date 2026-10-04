@@ -327,3 +327,77 @@ class TestMainWiring:
         line = _harness_zeroconf_line(tmp_path, "--follow-network")
         expected = network.physical_ipv4_addresses() or None
         assert line == f"zeroconf interfaces={expected!r}"
+
+
+class TestEngineEvents:
+    """Sleep and wake reported by the audio engine (--audio-input-socket with --follow-network)."""
+
+    async def test_will_sleep_withdraws_and_drops_connections(self, clocks):
+        monitor, discovery, connection = make_monitor(clocks, ["10.1.1.198"] * 5)
+        discovery.async_withdraw = AsyncMock()
+
+        await monitor.will_sleep()
+
+        discovery.async_withdraw.assert_awaited_once()
+        connection.abort.assert_called_once_with()
+
+    async def test_did_wake_announces_again(self, clocks):
+        monitor, discovery, connection = make_monitor(clocks, ["10.1.1.198"] * 5)
+        discovery.async_withdraw = AsyncMock()
+        await monitor.will_sleep()
+
+        await monitor.did_wake()
+
+        discovery.async_announce.assert_awaited()
+        connection.abort.assert_called_once_with()  # only at will_sleep
+
+    async def test_did_wake_without_will_sleep_drops_stale_connections(self, clocks):
+        monitor, discovery, connection = make_monitor(clocks, ["10.1.1.198"] * 5)
+
+        await monitor.did_wake()
+
+        connection.abort.assert_called_once_with()
+        discovery.async_announce.assert_awaited()
+
+    async def test_checks_wait_while_asleep(self, clocks):
+        monitor, discovery, _connection = make_monitor(clocks, ["10.1.1.198"] * 5)
+        discovery.async_withdraw = AsyncMock()
+        await monitor.will_sleep()
+
+        clocks.advance(5, slept=600)
+        await monitor.check()
+
+        discovery.async_announce.assert_not_awaited()
+
+    async def test_clock_gap_ignored_while_the_engine_reports(self, clocks):
+        monitor, discovery, connection = make_monitor(clocks, ["10.1.1.198"] * 5, engine_events=lambda: True)
+
+        clocks.advance(5, slept=600)
+        await monitor.check()
+
+        discovery.async_announce.assert_not_awaited()
+        connection.abort.assert_not_called()
+
+    async def test_clock_gap_still_used_without_the_engine(self, clocks):
+        monitor, discovery, _connection = make_monitor(clocks, ["10.1.1.198"] * 5, engine_events=lambda: False)
+
+        clocks.advance(5, slept=600)
+        await monitor.check()
+
+        discovery.async_announce.assert_awaited()
+
+    async def test_wake_without_address_is_retried(self, clocks):
+        monitor, discovery, _connection = make_monitor(clocks, [None, None, None, None, "10.1.1.198"], settle_timeout=2.0)
+
+        await monitor.did_wake()
+        discovery.async_announce.assert_not_awaited()
+
+        await monitor.check()
+        discovery.async_announce.assert_awaited()
+
+    async def test_network_changed_resyncs(self, clocks):
+        monitor, discovery, _connection = make_monitor(clocks, ["10.1.1.199"] * 5)
+
+        await monitor.network_changed()
+
+        discovery.async_update_address.assert_awaited_once_with("10.1.1.199")

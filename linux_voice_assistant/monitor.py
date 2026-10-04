@@ -28,6 +28,10 @@ class NetworkMonitor:
     waits until the address is stable, drops Home Assistant connections when
     they cannot have survived, points zeroconf at the current interfaces and
     announces the service again, so Home Assistant reconnects at once.
+
+    An audio engine can also report sleep and wake (will_sleep, did_wake,
+    network_changed). While it is connected (``engine_events`` returns True)
+    its events replace the clock comparison, which also fires on dark wakes.
     """
 
     def __init__(
@@ -48,6 +52,7 @@ class NetworkMonitor:
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = sleep_clock,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        engine_events: Callable[[], bool] = lambda: False,
     ) -> None:
         self.discovery = discovery
         self.connections = connections
@@ -65,8 +70,11 @@ class NetworkMonitor:
         self._clock = clock
         self._wall_clock = wall_clock
         self._sleep = sleep
+        self.engine_events = engine_events
         self._last = (clock(), wall_clock())
         self._reannounce: Optional[asyncio.Task] = None
+        self._asleep = False
+        self._retry_gap: Optional[float] = None
 
     async def run(self) -> None:
         while True:
@@ -80,18 +88,26 @@ class NetworkMonitor:
         """One poll: resync after a sleep gap or an address change."""
         gap = self._sleep_gap()
         address = self.find_address() if self.follow_address else self.address
-        if gap > self.sleep_gap:
+        if self._asleep:
+            return
+        if self._retry_gap is not None:
+            # A resync after an engine wake found no address yet
+            if await self.resync(self._retry_gap):
+                self._retry_gap = None
+            return
+        if gap > self.sleep_gap and not self.engine_events():
             _LOGGER.info("System slept for about %.0fs", gap)
             await self.resync(gap)
         elif address is not None and address != self.address:
             _LOGGER.info("Local address changed from %s to %s", self.address, address)
             await self.resync(0.0)
 
-    async def resync(self, gap: float) -> None:
+    async def resync(self, gap: float) -> bool:
+        """Announce again on the current address; False if no stable address was found."""
         address = await self._stable_address() if self.follow_address else self.address
         if address is None:
             _LOGGER.warning("No stable network address, will retry")
-            return
+            return False
 
         changed = address != self.address
         if changed or gap >= self.abort_gap:
@@ -112,6 +128,30 @@ class NetworkMonitor:
             self._reannounce.cancel()
         self._reannounce = asyncio.create_task(self._announce_later())
         self._last = (self._clock(), self._wall_clock())
+        return True
+
+    async def will_sleep(self) -> None:
+        """The system is about to sleep: say goodbye over mDNS and drop the Home Assistant connections."""
+        _LOGGER.info("System going to sleep, withdrawing the service")
+        self._asleep = True
+        if self._reannounce is not None:
+            self._reannounce.cancel()
+        await self.discovery.async_withdraw()
+        for connection in list(self.connections()):
+            connection.abort()
+
+    async def did_wake(self) -> None:
+        """The system woke up: announce again (connections are dropped unless will_sleep already did)."""
+        _LOGGER.info("System woke up")
+        gap = 0.0 if self._asleep else self.abort_gap
+        self._asleep = False
+        if not await self.resync(gap):
+            self._retry_gap = gap
+
+    async def network_changed(self) -> None:
+        """A hint that the network path changed: check the address now."""
+        if not self._asleep:
+            await self.resync(0.0)
 
     async def stop(self) -> None:
         if self._reannounce is not None:

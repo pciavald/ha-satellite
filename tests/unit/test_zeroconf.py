@@ -187,3 +187,53 @@ class TestClose:
         await zc.async_close()
 
         zc._mock_zc.async_close.assert_awaited_once_with()
+
+
+# ---------------------------------------------------------------------------
+# friendly_name and withdrawal (--follow-network)
+# ---------------------------------------------------------------------------
+
+
+async def _registered_properties(zc):
+    zc._mock_zc.async_register_service = AsyncMock()
+    captured = {}
+    with patch("linux_voice_assistant.zeroconf.AsyncServiceInfo") as mock_info_cls:
+        mock_info_cls.side_effect = lambda *a, **kw: captured.update(kw) or MagicMock()
+        await zc.register_server()
+    return captured["properties"]
+
+
+class TestFriendlyName:
+    async def test_not_announced_by_default(self):
+        assert "friendly_name" not in await _registered_properties(make_zeroconf())
+
+    async def test_announced_when_given(self):
+        properties = await _registered_properties(make_zeroconf(friendly_name="Mac bureau"))
+        assert properties["friendly_name"] == "Mac bureau"
+
+
+class TestWithdraw:
+    async def test_withdraw_then_announce_registers_again(self):
+        zc = make_zeroconf()
+        zc._mock_zc.async_register_service = AsyncMock()
+        zc._mock_zc.async_unregister_service = AsyncMock()
+        zc._mock_zc.async_update_service = AsyncMock()
+        with patch("linux_voice_assistant.zeroconf.AsyncServiceInfo"):
+            await zc.register_server()
+            await zc.async_withdraw()
+            await zc.async_withdraw()
+            await zc.async_announce()
+
+        zc._mock_zc.async_unregister_service.assert_awaited_once()
+        assert zc._mock_zc.async_register_service.await_count == 2
+        zc._mock_zc.async_update_service.assert_not_awaited()
+
+    async def test_announce_updates_a_registered_service(self):
+        zc = make_zeroconf()
+        zc._mock_zc.async_register_service = AsyncMock()
+        zc._mock_zc.async_update_service = AsyncMock()
+        with patch("linux_voice_assistant.zeroconf.AsyncServiceInfo"):
+            await zc.register_server()
+            await zc.async_announce()
+
+        zc._mock_zc.async_update_service.assert_awaited_once()
