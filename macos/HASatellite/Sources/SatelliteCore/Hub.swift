@@ -41,7 +41,8 @@ public final class Hub: @unchecked Sendable {
   private var sleepReply: (() -> Void)?
   private var talkWaiting = false
   private var haDownSince: Date?
-  private var notice: String?
+  /// "Talk now" was refused: its reason is shown while it still applies.
+  private var talkRefused = false
 
   public init(socketPath: String, helperVersion: String, factory: EngineFactory = AVEngineFactory(), scheduler: Scheduler? = nil, queue: DispatchQueue? = nil) {
     let queue = queue ?? DispatchQueue(label: "io.iostud.ha-satellite.hub")
@@ -94,11 +95,10 @@ public final class Hub: @unchecked Sendable {
       case .stop:
         controlConnection?.send(control.send(.stopPipeline))
         scheduleExpire(ControlModel.ackTimeout)
-      case .unavailable(let why):
-        notice = "Talk now unavailable: \(why)"
-        publish()
+      case .unavailable:
+        talkRefused = true
       case .start:
-        notice = nil
+        talkRefused = false
         control.beginTalk()
         audio.update { $0.pendingTalk = true }
         talkWaiting = true
@@ -379,13 +379,24 @@ public final class Hub: @unchecked Sendable {
     var state = HubState()
     state.controlConnected = control.connected
     state.snapshot = control.snapshot
-    state.notice = notice ?? control.notice
+    state.notice = talkNotice() ?? control.notice
     state.pendingTalk = control.pendingTalk
     state.lvaVersion = control.lvaVersion
     state.micClient = micLink != nil
     state.audio = audio.status
     state.haDisconnectedSince = haDownSince
     return state
+  }
+
+  /// The current reason "Talk now" is unavailable, after a refused press;
+  /// cleared once it no longer applies (Home Assistant connected...).
+  private func talkNotice() -> String? {
+    guard talkRefused else { return nil }
+    guard case .unavailable(let why) = control.talkAction() else {
+      talkRefused = false
+      return nil
+    }
+    return "Talk now unavailable: \(why)"
   }
 
   private func publish() {

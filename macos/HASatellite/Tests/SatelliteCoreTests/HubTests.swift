@@ -210,8 +210,8 @@ final class HubTests: XCTestCase {
     hub.queue.sync { scheduler.advance(seconds) }
   }
 
-  func state(rev: Int, muted: Bool, ptt: Bool = false, phase: String = "idle") -> Frame {
-    .json(.control, ["state": ["rev": rev, "ha_connected": true, "muted": muted, "ptt": ptt, "phase": phase, "media": "idle", "error": NSNull()]])
+  func state(rev: Int, muted: Bool, ptt: Bool = false, phase: String = "idle", haConnected: Bool = true) -> Frame {
+    .json(.control, ["state": ["rev": rev, "ha_connected": haConnected, "muted": muted, "ptt": ptt, "phase": phase, "media": "idle", "error": NSNull()]])
   }
 
   func connectControl(muted: Bool) throws -> Client {
@@ -325,6 +325,20 @@ final class HubTests: XCTestCase {
     XCTAssertEqual(try control.next()?.object()["command"] as? String, "stop_pipeline")
     control.send(state(rev: 3, muted: true))
     XCTAssertEqual(mic.code(mic.nextEvent()), "capture_paused")
+  }
+
+  func testTalkNowRefusalClearsOnceHomeAssistantConnects() throws {
+    let control = try Client(path, hello: ["proto": 1, "role": "control", "lva_version": "1.2.0"])
+    _ = control.next()
+    control.send(state(rev: 1, muted: false, haConnected: false))
+    wait("snapshot") { hub.state.snapshot?.rev == 1 }
+    hub.talkNow()
+    wait("refused") { hub.state.notice == "Talk now unavailable: Home Assistant not connected" }
+    control.send(state(rev: 2, muted: false, haConnected: true))
+    wait("cleared") { hub.state.snapshot?.rev == 2 && hub.state.notice == nil }
+    control.send(state(rev: 3, muted: false, haConnected: false))
+    wait("rev 3") { hub.state.snapshot?.rev == 3 }
+    XCTAssertNil(hub.state.notice, "only shown again after another press")
   }
 
   func testPlayWhileMutedUsesOutputOnlyEngine() throws {
