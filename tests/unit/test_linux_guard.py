@@ -158,6 +158,8 @@ _IMPORT_ALL = """
 import json, pkgutil, sys, importlib
 import linux_voice_assistant
 names = [m.name for m in pkgutil.walk_packages(linux_voice_assistant.__path__, "linux_voice_assistant.")]
+# player has no __init__.py, so walk_packages does not enter it
+names += [m.name for m in pkgutil.iter_modules([linux_voice_assistant.__path__[0] + "/player"], "linux_voice_assistant.player.")]
 for name in names:
     importlib.import_module(name)
 import soundcard
