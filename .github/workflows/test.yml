@@ -1,0 +1,82 @@
+name: Test matrix
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.13"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Same libraries as the Dockerfile and the upstream test workflow; a
+      # PulseAudio daemon with its automatic null sink stands in for the sound
+      # server, because soundcard connects to it when it is imported on Linux.
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libmpv-dev mpv libasound2-plugins pulseaudio pulseaudio-utils
+          pulseaudio --start --exit-idle-time=-1
+          pactl info
+
+      # CI only: libmpv comes from Homebrew on the macOS runner.
+      - name: Install macOS system packages
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          brew install mpv
+          echo "LIBMPV_DIR=$(brew --prefix)/lib" >> "$GITHUB_ENV"
+
+      - name: Install the project
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev]"
+          python -c "import sys; assert sys.version.startswith('${{ matrix.python }}.'), sys.version"
+
+      # DYLD_* variables are stripped when a SIP-protected binary such as bash
+      # starts, so the library path is exported inside the step itself.
+      - name: Run unit tests
+        run: |
+          if [ -n "${LIBMPV_DIR:-}" ]; then export DYLD_FALLBACK_LIBRARY_PATH="$LIBMPV_DIR"; fi
+          python -m pytest tests/unit -ra --junitxml=junit.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-${{ matrix.os }}-py${{ matrix.python }}
+          path: junit.xml
+          if-no-files-found: warn
