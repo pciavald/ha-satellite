@@ -340,6 +340,8 @@ async def main() -> None:
     else:
         mic = sc.default_microphone()
 
+    args.audio_input_channels = _input_channels(args.audio_input_channels, mic)
+
     # Load available wake words
     wake_word_dirs = [Path(ww_dir) for ww_dir in args.wake_word_dir]
 
@@ -638,6 +640,15 @@ def _setup_logging(args: argparse.Namespace) -> None:
 
 
 # -----------------------------------------------------------------------------
+
+
+def _input_channels(requested: int, mic) -> int:
+    """Return the number of channels to capture, at most what the microphone has."""
+    available = getattr(mic, "channels", None)
+    if isinstance(available, int) and 0 < available < requested:
+        _LOGGER.warning("%s has %d channel(s), capturing %d instead of %d", mic.name, available, available, requested)
+        return available
+    return requested
 
 
 def _device_blocksize(block_size: int) -> Optional[int]:

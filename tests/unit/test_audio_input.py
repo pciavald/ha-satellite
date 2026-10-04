@@ -1,6 +1,7 @@
 """Tests for the microphone side of process_audio on Linux and macOS."""
 
 import sys
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -75,3 +76,51 @@ class TestDeviceBlocksize:
 
         assert mic.recorder_kwargs["blocksize"] is None
         assert mic.record_calls[0] == 2048
+
+
+class TestInputChannels:
+    def test_mono_device_asked_for_two_channels_captures_one(self, caplog):
+        assert lva_main._input_channels(2, FakeMicrophone(channels=1)) == 1
+        assert "capturing 1 instead of 2" in caplog.text
+
+    def test_dual_channel_device_keeps_two_channels(self, caplog):
+        assert lva_main._input_channels(2, FakeMicrophone(channels=2)) == 2
+        assert caplog.text == ""
+
+    def test_mono_request_is_unchanged(self):
+        assert lva_main._input_channels(1, FakeMicrophone(channels=2)) == 1
+
+    def test_unknown_channel_count_keeps_the_request(self):
+        mic = FakeMicrophone()
+        mic.channels = None
+        assert lva_main._input_channels(2, mic) == 2
+
+    def test_server_state_defaults_to_mono(self):
+        from dataclasses import fields
+
+        from linux_voice_assistant.models import ServerState
+
+        assert {field.name: field.default for field in fields(ServerState)}["audio_input_channels"] == 1
+
+    def test_multi_channel_advertised_with_two_channels(self, tmp_path):
+        from aioesphomeapi.model import VoiceAssistantFeature
+
+        from tests.unit.conftest import make_satellite
+
+        two = make_satellite(tmp_path, state_overrides={"audio_input_channels": 2})
+        one = make_satellite(tmp_path, state_overrides={"audio_input_channels": 1})
+
+        assert two.supported_features & VoiceAssistantFeature.MULTI_CHANNEL_AUDIO
+        assert not one.supported_features & VoiceAssistantFeature.MULTI_CHANNEL_AUDIO
+
+    def test_second_channel_is_streamed_as_reference(self, tmp_path):
+        state = make_state(tmp_path, audio_input_channels=2)
+        state.satellite = MagicMock()
+        state.satellite.handle_audio.side_effect = _StopRecording()
+        mic = FakeMicrophone(channels=2)
+
+        run_process_audio(state, mic)
+
+        assert mic.recorder_kwargs["channels"] == 2
+        primary, reference = state.satellite.handle_audio.call_args.args
+        assert len(primary) == len(reference) == 1024 * 2
