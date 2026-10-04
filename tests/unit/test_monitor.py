@@ -172,7 +172,7 @@ class TestChecks:
 class TestSleepClock:
     @linux_only
     def test_linux_counts_suspend_with_boottime(self):
-        assert monitor_module.SLEEP_CLOCK_ID == time.CLOCK_BOOTTIME
+        assert monitor_module.SLEEP_CLOCK_ID == time.CLOCK_BOOTTIME  # pylint: disable=no-member
 
     @darwin_only
     def test_macos_counts_sleep_with_clock_monotonic(self):

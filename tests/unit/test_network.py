@@ -79,7 +79,8 @@ class TestLegacyBackend:
             assert await network.wait_for_default_interface(retry=0) is None
         get_interface.assert_called_once_with()
 
-    def test_netifaces_without_gateway_support_falls_back(self, monkeypatch, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_netifaces_without_gateway_support_falls_back(self, monkeypatch):
         monkeypatch.setattr(network, "_route_backend", False)
         with patch.object(util, "get_default_interface", side_effect=NotImplementedError("No implementation for `gateways()` yet")):
             assert network.default_interface() == "en13"
@@ -93,19 +94,23 @@ class TestLegacyBackend:
 
 
 class TestRouteBackend:
-    def test_default_route_address(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_default_route_address(self):
         found = network.find_local_address()
         assert found == network.LocalAddress(interface="en13", ip="10.1.1.198", prefix=24)
 
-    def test_default_interface_and_its_address(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_default_interface_and_its_address(self):
         assert network.default_interface() == "en13"
         assert network.interface_ipv4("en13") == "10.1.1.198"
 
-    def test_explicit_interface_uses_its_first_address(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_explicit_interface_uses_its_first_address(self):
         assert network.find_local_address("en0") == network.LocalAddress(interface="en0", ip="192.168.1.30", prefix=24)
         assert network.interface_ipv4("en0") == "192.168.1.30"
 
-    def test_unknown_interface(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_unknown_interface(self):
         assert network.find_local_address("en99") is None
         assert network.interface_ipv4("en99") is None
         assert network.interface_ipv4(None) is None
@@ -120,22 +125,26 @@ class TestRouteBackend:
         route_backend.source = source
         assert network.find_local_address().ip == "192.168.1.30"
 
-    def test_no_route_falls_back(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_no_route_falls_back(self):
         route_backend.source = OSError(51, "Network is unreachable")
         assert network.find_local_address().interface == "en0"
 
-    def test_fallback_order_is_the_interface_index(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_fallback_order_is_the_interface_index(self):
         route_backend.source = OSError(51, "Network is unreachable")
         route_backend.adapters = [adapter("en5", 9, "172.16.0.5/16"), adapter("en1", 4, "192.168.2.2/24")]
         assert network.find_local_address().interface == "en1"
 
-    def test_public_only_addresses_are_not_guessed(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_public_only_addresses_are_not_guessed(self):
         route_backend.source = OSError(51, "Network is unreachable")
         route_backend.adapters = [adapter("en0", 4, "203.0.113.9/24"), adapter("utun0", 5, "10.8.0.2/24")]
         assert network.find_local_address() is None
         assert network.default_interface() is None
 
-    def test_route_source_on_an_unknown_interface_falls_back(self, route_backend):
+    @pytest.mark.usefixtures("route_backend")
+    def test_route_source_on_an_unknown_interface_falls_back(self):
         route_backend.source = "10.9.9.9"
         assert network.find_local_address().ip == "192.168.1.30"
 

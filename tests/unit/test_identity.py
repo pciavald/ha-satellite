@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,7 +39,7 @@ def resolve_state(monkeypatch, tmp_path, argv: list, **patches) -> dict:
         monkeypatch.setattr(lva_main, name, value)
     monkeypatch.setattr(lva_main.network, "default_interface", lambda: "eth0")
     monkeypatch.setattr(lva_main.network, "interface_ipv4", lambda interface: "192.168.1.20")
-    monkeypatch.setattr(lva_main.sc, "default_microphone", lambda: FakeMicrophone())
+    monkeypatch.setattr(lva_main.sc, "default_microphone", FakeMicrophone)
 
     with pytest.raises(_StateBuilt) as built:
         asyncio.run(lva_main.main())
