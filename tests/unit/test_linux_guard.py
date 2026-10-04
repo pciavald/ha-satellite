@@ -159,7 +159,7 @@ print(json.dumps({"imported": names, "modules": sorted(sys.modules), "soundcard"
 class TestLinuxImportGraph:
     @pytest.fixture(scope="class")
     def import_report(self):
-        result = subprocess.run([sys.executable, "-c", _IMPORT_ALL], cwd=_REPO_DIR, capture_output=True, text=True, check=False)
+        result = subprocess.run([sys.executable, "-c", _IMPORT_ALL, "lva-import-check"], cwd=_REPO_DIR, capture_output=True, text=True, check=False)
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout.strip().splitlines()[-1])
 
