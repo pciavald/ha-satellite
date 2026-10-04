@@ -114,7 +114,7 @@ def decode_pcm(url: str, cancelled: Optional[threading.Event] = None) -> Iterato
     if url.startswith(("http://", "https://")):
         source = HttpSource(url, cancelled if cancelled is not None else threading.Event())
     try:
-        with av.open(source if source is not None else url) as container:
+        with av.open(source if source is not None else url, mode="r") as container:
             stream = container.streams.audio[0]
             resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
             for frame in container.decode(stream):

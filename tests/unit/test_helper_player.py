@@ -300,11 +300,12 @@ def wav_bytes(seconds: float, rate: int = 16000) -> bytes:
     t = np.arange(int(seconds * rate)) / rate
     samples = (np.sin(2 * np.pi * 440 * t) * 16000).astype("<i2")
     out = io.BytesIO()
-    with wave.open(out, "wb") as writer:
-        writer.setnchannels(1)
-        writer.setsampwidth(2)
-        writer.setframerate(rate)
-        writer.writeframes(samples.tobytes())
+    writer = wave.Wave_write(out)
+    writer.setnchannels(1)
+    writer.setsampwidth(2)
+    writer.setframerate(rate)
+    writer.writeframes(samples.tobytes())
+    writer.close()
     return out.getvalue()
 
 
@@ -317,7 +318,7 @@ class SlowTTSServer:
         server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802
+            def do_GET(self):  # noqa: N802  # pylint: disable=invalid-name
                 server.requests += 1
                 server.release.wait(delay)
                 self.send_response(200)
