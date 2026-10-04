@@ -260,12 +260,41 @@ Not possible or rejected: the Globe (fn) key (consumed by the system), Siri's ow
 shortcut (needs Input Monitoring or Accessibility), Shortcuts and Spotlight actions
 (App Intents need an Xcode project build).
 
+## Start and end of a voice command
+
+The satellite streams the microphone to Home Assistant as soon as the wake word
+is detected or Talk Now is pressed, while the wake or start-listening sound
+plays: the app's voice processing removes its own playback from the microphone,
+so the first words are no longer lost while the sound finishes. LVA on Linux
+keeps waiting for the sound to end (`--listen-during-wake-sound` changes that).
+
+Home Assistant alone decides when the command ends, for ESPHome satellites as
+for this one: its voice activity detector
+([`VoiceCommandSegmenter`](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/assist_pipeline/vad.py#L73-L127)) runs on the
+streamed audio. The satellite cannot change it: Home Assistant ignores the
+request's VAD flag and audio settings
+([`handle_pipeline_start`](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/esphome/assist_satellite.py#L523-L557)) and only
+passes the silence length of the satellite's select
+([`_resolve_vad_sensitivity`](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/assist_satellite/entity.py#L522-L527)).
+
+- **Silence that ends the command**: the **Finished speaking detection** select
+  on the satellite's device page in Home Assistant: Aggressive 0.25 s, Default
+  0.7 s, Relaxed 1.25 s ([`to_seconds`](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/assist_pipeline/vad.py#L20-L30)).
+  The silence count only starts over after 1 s of uninterrupted speech, so
+  several short pauses add up. Choose **Relaxed** to pause mid-sentence.
+- **15 s maximum**: a command is cut 15 s after streaming starts, pauses or not
+  ([`timeout_seconds`](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/assist_pipeline/vad.py#L85)); Home Assistant creates
+  the detector with only the silence length
+  ([default_pipeline.py](https://github.com/home-assistant/core/blob/869ccd31d625905bfc08b32f9124fe9b40bc4ff5/homeassistant/components/assist_pipeline/default_pipeline.py#L437-L444)),
+  so no setting changes it. Only a speech-to-text engine that detects the end of
+  speech itself (`requires_external_vad` false) skips this detector.
+
 ## Logs and files
 
 | Path | Content |
 | --- | --- |
 | `~/Library/Application Support/ha-satellite/` | `satellite.json` (optional), `audio.sock`, `audio.lock`, `run/satellite.pid`, the satellite's preferences and downloads (directory mode 0700) |
-| `~/Library/Logs/HA Satellite/satellite.log` | the Python satellite's output (rotated above 10 MB, one `.1` kept) |
+| `~/Library/Logs/HA Satellite/satellite.log` | the Python satellite's output, each line timestamped to the millisecond (rotated above 10 MB, one `.1` kept) |
 | `~/Library/Logs/HA Satellite/app.log` | the app: engine starts, connections, child exits and restarts, menu state |
 
 `just mac-logs` follows both; Troubleshooting > Open Logs opens the folder;

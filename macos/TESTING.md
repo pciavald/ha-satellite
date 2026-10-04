@@ -52,7 +52,12 @@ Write the result of each step (ok, or what happened, with timestamps) next to it
 
 7. **Wake word**: say it; the wake sound plays, the request is transcribed and the
    answer is spoken on the built-in speakers. The menu icon fills during the
-   conversation.
+   conversation. Start speaking at once, over the wake sound, and again with
+   Talk Now over its sound: the first word is in the transcript (Home
+   Assistant's debug view of the pipeline run, or `STT_END` in `satellite.log`).
+   With **Finished speaking detection** set to Relaxed on the device page, a
+   pause of about one second mid-sentence does not end the command; a command
+   longer than 15 s is still cut (Home Assistant's limit, see the README).
 8. **Echo**: ask something with a long answer and say nothing: the answer is not
    transcribed as a new request, and a continued conversation does not hear the
    end of its own answer. Say the wake word, then the stop word, during a long
