@@ -20,8 +20,10 @@ End-to-end checks with Home Assistant are in [TESTING.md](TESTING.md).
 - To run: nothing else. The app is self-contained: Python, the satellite and its
   dependencies, and libmpv are inside it.
 - To build: Xcode (for `swift build` and `swift test`; no Xcode project is used),
-  libmpv (`brew install mpv`, or a directory holding `libmpv.dylib` in
-  `LVA_LIBMPV_DIR`), network access for the first build, and a "Developer ID
+  libmpv and its FFmpeg (`brew install mpv pkgconf`, or a directory holding
+  `libmpv.dylib` in `LVA_LIBMPV_DIR` with the `pkg-config` directory of the
+  FFmpeg it links in `LVA_FFMPEG_PKGCONFIG`), network access for the first
+  build, and a "Developer ID
   Application" signing identity in the keychain (or see Signing)
 
 ## Download a build from GitHub
@@ -95,16 +97,28 @@ shell (they drop the Nix `DEVELOPER_DIR`, `SDKROOT` and `xcrun`).
 | Path in `Contents/` | Content |
 | --- | --- |
 | `MacOS/HASatellite` | the menu bar app |
-| `Resources/python/` | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) CPython 3.13, pinned by release and SHA-256 in `build.sh` (downloaded once into `~/Library/Caches/ha-satellite-build`), with the exact versions of [`requirements.txt`](requirements.txt) in its `site-packages` (binary wheels only); pip, headers, Tk and IDLE are removed |
+| `Resources/python/` | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) CPython 3.13, pinned by release and SHA-256 in `build.sh` (downloaded once into `~/Library/Caches/ha-satellite-build`), with the exact versions of [`requirements.txt`](requirements.txt) in its `site-packages` (binary wheels, except PyAV); pip, headers, Tk and IDLE are removed |
 | `Resources/lva/` | `linux_voice_assistant`, `wakewords` and `sounds` from the repository, found through `site-packages/lva.pth` |
-| `Frameworks/` | `libmpv.dylib` and every library it needs, from `LVA_LIBMPV_DIR` or Homebrew, rewritten by [`bundle.py`](bundle.py) to load each other through `@loader_path`, without rpaths |
+| `Frameworks/` | `libmpv.dylib` and every library it needs, from `LVA_LIBMPV_DIR` or Homebrew, rewritten by [`bundle.py`](bundle.py) to load each other through `@loader_path`, without rpaths; PyAV's modules load the same FFmpeg from here |
+
+PyAV (which decodes TTS and sounds for the app) is built from source against
+the FFmpeg libmpv links, and its modules are relinked to `Frameworks/`. Its
+binary wheel carries a private FFmpeg: next to libmpv's, one process would load
+two copies (macOS warns about duplicate Objective-C classes, and the two can
+disagree). Building against the copy already bundled keeps the decoder that the
+tests run, without relinking a binary to libraries it was not built against
+(the wheel's FFmpeg is often a newer minor version), and without a second
+decoding path through libmpv. The build fails when the bundle holds two copies
+of an FFmpeg library.
 
 Everything is compiled to bytecode at build time (unchecked hashes), and the
 satellite runs with `-B`, so nothing is ever written into the signed bundle. The
 build fails when a binary of the bundle is not arm64 or loads a library from
 outside the bundle and the system (`bundle.py check`). `just mac-check` runs that
 check again, then [`smoke.py`](smoke.py) with the bundled interpreter as the app
-starts it: it imports LVA and its native dependencies, opens libmpv, loads a
+starts it: it imports LVA and its native dependencies, opens libmpv, checks
+that every FFmpeg library is loaded once, from `Frameworks/`, decodes a bundled
+sound with PyAV, loads a
 microWakeWord and an openWakeWord model and calls a ctypes callback (nothing is
 advertised, no socket is opened), and runs `-m linux_voice_assistant --help`.
 The app is about 300 MB. To update a pin: `requirements.txt` (regenerated with
@@ -281,7 +295,7 @@ System Settings).
 | Satellite not running, restarting | `satellite.log`; `just mac-check` checks the bundle; the app restarts it after 2, 5, 10, then 30 s |
 | "Damaged" or "cannot be opened" for a downloaded build | the quarantine of an ad hoc build: see Download a build from GitHub |
 | Microphone not authorized | Troubleshooting > Microphone Access…; after an ad hoc rebuild the grant is gone |
-| Home Assistant never finds it | Local Network permission for HA Satellite; same network; Wi-Fi client isolation; `satellite.log` shows the advertised address |
+| Home Assistant never finds it | Local Network permission for HA Satellite (`satellite.log` says "mDNS send refused" without it); same network; Wi-Fi client isolation; `satellite.log` shows the advertised address |
 | Two devices in Home Assistant | the MAC changed: check the menu's Network line (or set `mac_address` in `satellite.json`) and delete the extra device |
 | The satellite answers itself | TTS must go through the app (`--audio-output-socket`); run `just mac-echo-test` (quit the app first) |
 | The Mac does not sleep | expected while listening; turn off Listen for Wake Word, then `pmset -g assertions` should show no `coreaudiod` hold after 5 s |
@@ -346,6 +360,13 @@ Details both sides rely on:
   malformed frame
 - `control`: the app defines no command for Python; any command Python sends is
   answered with `{"ack": id, "ok": false, "reason": "unknown_command"}`
+- `play:tts` carries everything the satellite plays except music: TTS,
+  announcements, and the wake, timer and mute sounds, so the echo canceller
+  hears them all; music stays on libmpv. TTS URLs are read with up to 60 s
+  without data (mpv's default network timeout): Home Assistant's `tts_proxy`
+  answers only once the TTS engine has audio. A TTS keeps playing after the
+  pipeline's RUN_END; stop, the stop word or a new item cancels it at once,
+  even while it is still waiting for Home Assistant
 - a play item cut by an audio engine change gets `EVENT interrupted`; the rest of
   the item is dropped and `DRAINED` follows its `END`
 - a play connection may go unread for up to 3 s while an engine starts; both sides
