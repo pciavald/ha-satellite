@@ -435,3 +435,51 @@ class TestHandleTimerEvent:
         sat = self._sat(tmp_path)
         sat.handle_timer_event(VoiceAssistantTimerEventType.VOICE_ASSISTANT_TIMER_CANCELLED, _timer_msg())
         assert self._emitted(sat)[-1][0] == LVAEvent.IDLE
+
+
+# ---------------------------------------------------------------------------
+# Streaming start relative to the wake and start-listening sounds
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingStart:
+    def _sat(self, tmp_path, **state):
+        sat = make_satellite(tmp_path, state_overrides=state)
+        sat.send_messages = MagicMock()
+        return sat
+
+    def test_wake_word_waits_for_the_wake_sound_by_default(self, tmp_path):
+        sat = self._sat(tmp_path)
+        sat.wakeup(MagicMock(wake_word="Okay Nabu"))
+
+        sat.send_messages.assert_not_called()
+        assert sat._is_streaming_audio is False
+        done = sat.state.tts_player.play.call_args.kwargs["done_callback"]
+        done()
+        assert sat._is_streaming_audio is True
+        assert sat.send_messages.call_args.args[0][0].wake_word_phrase == "Okay Nabu"
+
+    def test_wake_word_streams_during_the_wake_sound_when_asked(self, tmp_path):
+        sat = self._sat(tmp_path, listen_during_wake_sound=True)
+        sat.wakeup(MagicMock(wake_word="Okay Nabu"))
+
+        assert sat._is_streaming_audio is True
+        assert "done_callback" not in sat.state.tts_player.play.call_args.kwargs
+        assert sat.send_messages.call_args.args[0][0].start is True
+
+    def test_button_waits_for_the_start_sound_by_default(self, tmp_path):
+        sat = self._sat(tmp_path)
+        assert sat.start_listening() is True
+
+        sat.send_messages.assert_not_called()
+        assert sat._is_streaming_audio is False
+        sat.state.tts_player.play.call_args.kwargs["done_callback"]()
+        assert sat._is_streaming_audio is True
+
+    def test_button_streams_during_the_start_sound_when_asked(self, tmp_path):
+        sat = self._sat(tmp_path, listen_during_start_sound=True)
+        assert sat.start_listening() is True
+
+        sat.state.tts_player.play.assert_called_once_with(sat.state.start_listening_sound)
+        assert sat._is_streaming_audio is True
+        assert sat.send_messages.call_args.args[0][0].start is True

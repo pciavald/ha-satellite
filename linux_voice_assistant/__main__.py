@@ -519,7 +519,8 @@ async def main() -> Optional[Shutdown]:
         mic_noise_suppression=preferences.mic_noise_suppression,
         audio_input_channels=args.audio_input_channels,
         timer_max_ring_seconds=args.timer_max_ring_seconds,
-        listen_during_wake_sound=args.listen_during_wake_sound,
+        listen_during_wake_sound=args.listen_during_wake_sound or _engine_cancels_echo(args),
+        listen_during_start_sound=_engine_cancels_echo(args),
     )
 
     if engine_mic is not None:
@@ -795,6 +796,16 @@ def _advertised_address(bind_address: Optional[str], network_interface: Optional
 
     print(f"Advertising IP-Address: {detected}")
     return detected
+
+
+def _engine_cancels_echo(args: argparse.Namespace) -> bool:
+    """True when the audio engine both plays the sounds and removes them from the microphone.
+
+    Its voice processing cancels the satellite's own playback, so streaming
+    can start with the wake or start-listening sound instead of after it,
+    and the first words are not lost.
+    """
+    return bool(args.audio_input_socket and args.audio_output_socket)
 
 
 def _mac_address(value: str) -> str:

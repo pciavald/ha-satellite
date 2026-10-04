@@ -233,3 +233,32 @@ class TestPreferencesFromArgs:
         if enable_thinking_sound:
             prefs.thinking_sound = 1
         assert prefs.thinking_sound == 1
+
+
+# ---------------------------------------------------------------------------
+# Audio engine: streaming during the sounds
+# ---------------------------------------------------------------------------
+
+
+def _engine_args(**sockets):
+    import argparse
+
+    values = {"audio_input_socket": None, "audio_output_socket": None, "control_socket": None}
+    values.update(sockets)
+    return argparse.Namespace(**values)
+
+
+class TestEngineCancelsEcho:
+    def test_both_engine_sockets_listen_during_the_sounds(self):
+        from linux_voice_assistant.__main__ import _engine_cancels_echo
+
+        assert _engine_cancels_echo(_engine_args(audio_input_socket="/s", audio_output_socket="/s")) is True
+
+    @pytest.mark.parametrize(
+        "sockets",
+        [{}, {"audio_input_socket": "/s"}, {"audio_output_socket": "/s"}, {"control_socket": "/s"}],
+    )
+    def test_without_the_engine_playing_and_hearing_the_sounds_wait_for_them(self, sockets):
+        from linux_voice_assistant.__main__ import _engine_cancels_echo
+
+        assert _engine_cancels_echo(_engine_args(**sockets)) is False

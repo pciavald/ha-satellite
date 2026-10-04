@@ -970,10 +970,14 @@ class VoiceSatelliteProtocol(APIServer):
         _LOGGER.debug("Stopping timer finished sound")
         self._pipeline_active = True
         self.duck()
-        self.state.tts_player.play(
-            self.state.start_listening_sound,
-            done_callback=self._on_start_listening_sound_finished,
-        )
+        if self.state.listen_during_start_sound:
+            self.state.tts_player.play(self.state.start_listening_sound)
+            self._on_start_listening_sound_finished()
+        else:
+            self.state.tts_player.play(
+                self.state.start_listening_sound,
+                done_callback=self._on_start_listening_sound_finished,
+            )
         return True
 
     def _on_start_listening_sound_finished(self) -> None:

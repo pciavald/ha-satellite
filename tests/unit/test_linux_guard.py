@@ -113,6 +113,12 @@ class TestLinuxCliDefaults:
         assert args.control_socket is None
         assert args.persist_mute is False
 
+    def test_linux_waits_for_the_wake_and_start_sounds(self, monkeypatch):
+        args = _parse_cli(monkeypatch, [])
+
+        assert args.listen_during_wake_sound is False
+        assert lva_main._engine_cancels_echo(args) is False
+
     def test_linux_cli_still_accepts_dual_channel_capture(self, monkeypatch):
         assert _parse_cli(monkeypatch, ["--audio-input-channels", "2"]).audio_input_channels == 2
 
