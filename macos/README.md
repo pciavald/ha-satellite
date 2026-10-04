@@ -17,12 +17,39 @@ End-to-end checks with Home Assistant are in [TESTING.md](TESTING.md).
 ## Requirements
 
 - Apple Silicon Mac, macOS 15 or later (the wake word models need macOS 15)
-- Xcode (for `swift build` and `swift test`); no Xcode project is used
-- `uv` (or Python 3.13) to create the satellite's virtual environment
-- libmpv for music, for example `brew install mpv` or nixpkgs `mpv-unwrapped`
-- A "Developer ID Application" signing identity in the keychain (or see Signing)
+- To run: nothing else. The app is self-contained: Python, the satellite and its
+  dependencies, and libmpv are inside it.
+- To build: Xcode (for `swift build` and `swift test`; no Xcode project is used),
+  libmpv (`brew install mpv`, or a directory holding `libmpv.dylib` in
+  `LVA_LIBMPV_DIR`), network access for the first build, and a "Developer ID
+  Application" signing identity in the keychain (or see Signing)
 
-## Install
+## Download a build from GitHub
+
+Every push runs the macOS job of the
+[Test matrix workflow](https://github.com/pciavald/ha-satellite/actions/workflows/test.yml),
+which builds the app and keeps it 30 days as the artifact
+`HA-Satellite-macos-arm64.zip`:
+
+1. open the run (Actions > Test matrix > the run of your commit), scroll to
+   **Artifacts** and download `HA-Satellite-macos-arm64.zip` (signed in to GitHub);
+2. unzip it and move `HA Satellite.app` to `~/Applications` or `/Applications`.
+
+These builds are signed ad hoc, not with a Developer ID, and not notarized, so
+macOS refuses the first opening. Either remove the quarantine before opening it:
+
+```sh
+xattr -dr com.apple.quarantine ~/Applications/HA\ Satellite.app
+```
+
+or open it once, then allow it in System Settings > Privacy & Security ("Open
+Anyway"; right-click > Open does the same on older macOS). An ad hoc signature
+identifies one build only: the microphone permission and the login item are tied
+to that build, and each new download asks for the microphone again (System
+Settings may keep a stale HA Satellite entry; `tccutil reset Microphone
+io.iostud.ha-satellite` clears it).
+
+## Install from the repository
 
 ```sh
 just mac-install            # or: macos/build.sh install
@@ -30,71 +57,107 @@ just mac-install            # or: macos/build.sh install
 
 This:
 
-1. builds the app and signs it with the keychain's Developer ID Application
-   identity (hardened runtime, microphone entitlement);
-2. creates `.venv/` at the repository root with Python 3.13 if it is missing and
-   installs the exact versions of [`requirements.txt`](requirements.txt) and LVA
-   itself (editable) into it; packages already there, such as the dev tools of
-   `./script/setup --dev`, are kept;
-3. copies the app to `~/Applications/HA Satellite.app`, after checking that no
-   other copy of `io.iostud.ha-satellite` exists (duplicates confuse the login
-   item);
-4. writes `~/Library/Application Support/ha-satellite/satellite.json` from
-   [`satellite.json.example`](satellite.json.example) if it does not exist yet;
-5. opens the app, but only once `satellite.json` has no placeholder left.
+1. builds the self-contained app (see Bundle) and signs it with the keychain's
+   Developer ID Application identity (hardened runtime);
+2. checks it (`just mac-check`, below);
+3. copies it to `~/Applications/HA Satellite.app`, after checking that no other
+   copy of `io.iostud.ha-satellite` exists (duplicates confuse the login item);
+4. opens it.
 
-`satellite.json` keeps three placeholders for values only you know, and the
-command prints how to find them:
-
-| Placeholder | Value |
-| --- | --- |
-| `@NAME@` | the satellite's name in Home Assistant, for example `MacBook` |
-| `@MAC@` | the built-in Wi-Fi MAC address: `networksetup -listallhardwareports \| grep -A 2 'Wi-Fi'`, line "Ethernet Address". It pins the device identity, so Home Assistant keeps the same device when the Mac moves between Wi-Fi and a dock |
-| `@LIBMPV@` | the directory holding `libmpv.dylib`: `$(brew --prefix)/lib`, or the `lib` of nixpkgs `mpv-unwrapped`; filled from `LVA_LIBMPV_DIR` when it is set |
-
-Set them by editing the file, or with
-`just mac-config --force --name MacBook --mac aa:bb:cc:dd:ee:ff --libmpv /opt/homebrew/lib`,
-then `open ~/Applications/HA\ Satellite.app`. The app refuses a file that still
-has a placeholder and says which one in its menu.
+Nothing needs configuring: the satellite is named after the Mac (change it with
+Name… in the menu) and the network values are detected (Configuration). The
+other commands: `just mac-build`, `mac-check`, `mac-test` (Swift tests),
+`mac-status`, `mac-selftest`, `mac-echo-test`, `mac-logs`, `mac-uninstall`
+(`macos/build.sh help` lists them).
 
 Reinstalling over the same path keeps the permissions and the login item.
-The other commands: `just mac-build`, `mac-test` (Swift tests), `mac-venv`,
-`mac-config`, `mac-status`, `mac-selftest`, `mac-echo-test`, `mac-logs`,
-`mac-uninstall` (`macos/build.sh help` lists them).
 
 **Signing.** The identity is `LVA_SIGN_IDENTITY` when set, otherwise the first
-"Developer ID Application" identity of the keychain. With a Developer ID the
-designated requirement is the bundle id plus the team, so rebuilds keep the
-microphone permission. `LVA_SIGN_IDENTITY=-` signs ad hoc: it works, but every
-rebuild is a new app for macOS, which asks for the microphone again, and the
-login item may not register reliably; `install` refuses ad hoc unless it is set
-explicitly. The app is not notarized: it is built locally and never quarantined.
-The scripts use Apple's toolchain even inside the Nix dev shell (they drop the Nix
-`DEVELOPER_DIR`, `SDKROOT` and `xcrun`).
+"Developer ID Application" identity of the keychain. Every nested binary is
+signed first, inside-out (the libraries and Python extension modules, then the
+interpreter), then the app with the microphone entitlement; with a Developer ID
+all of them use the hardened runtime. No other entitlement is needed: library
+validation only asks that the libraries the interpreter loads (ctypes, libmpv)
+have the same team, which they do. With a Developer ID the designated
+requirement is the bundle id plus the team, so rebuilds keep the microphone
+permission. `LVA_SIGN_IDENTITY=-` signs ad hoc, as CI does: ad hoc signatures
+have no team, so the nested code is then signed without the hardened runtime.
+It works, but every rebuild is a new app for macOS, which asks for the
+microphone again, and the login item may not register reliably; `install`
+refuses ad hoc unless it is set explicitly. Local builds are not notarized: they
+are never quarantined. The scripts use Apple's toolchain even inside the Nix dev
+shell (they drop the Nix `DEVELOPER_DIR`, `SDKROOT` and `xcrun`).
+
+## Bundle
+
+`just mac-build` assembles `macos/HASatellite/.build/HA Satellite.app`:
+
+| Path in `Contents/` | Content |
+| --- | --- |
+| `MacOS/HASatellite` | the menu bar app |
+| `Resources/python/` | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) CPython 3.13, pinned by release and SHA-256 in `build.sh` (downloaded once into `~/Library/Caches/ha-satellite-build`), with the exact versions of [`requirements.txt`](requirements.txt) in its `site-packages` (binary wheels only); pip, headers, Tk and IDLE are removed |
+| `Resources/lva/` | `linux_voice_assistant`, `wakewords` and `sounds` from the repository, found through `site-packages/lva.pth` |
+| `Frameworks/` | `libmpv.dylib` and every library it needs, from `LVA_LIBMPV_DIR` or Homebrew, rewritten by [`bundle.py`](bundle.py) to load each other through `@loader_path`, without rpaths |
+
+Everything is compiled to bytecode at build time (unchecked hashes), and the
+satellite runs with `-B`, so nothing is ever written into the signed bundle. The
+build fails when a binary of the bundle is not arm64 or loads a library from
+outside the bundle and the system (`bundle.py check`). `just mac-check` runs that
+check again, then [`smoke.py`](smoke.py) with the bundled interpreter as the app
+starts it: it imports LVA and its native dependencies, opens libmpv, loads a
+microWakeWord and an openWakeWord model and calls a ctypes callback (nothing is
+advertised, no socket is opened), and runs `-m linux_voice_assistant --help`.
+The app is about 300 MB. To update a pin: `requirements.txt` (regenerated with
+the command at its top), or `python_version`, `python_release` and
+`python_sha256` in `build.sh` (the release's `SHA256SUMS`).
 
 ## Configuration
 
-`satellite.json` says how to start the Python satellite:
+The app starts the bundled interpreter itself:
+
+```
+Contents/Resources/python/bin/python3 -I -B -u -m linux_voice_assistant
+  --name NAME --host 0.0.0.0 --mac-address WIFI_MAC --follow-network
+  --audio-input-socket SOCKET --audio-output-socket SOCKET --control-socket SOCKET
+  --persist-mute --disable-peripheral-api
+  --preferences-file SUPPORT/preferences.json --download-dir SUPPORT/downloads
+```
+
+with `LVA_LIBMPV_DIR` set to `Contents/Frameworks`, the working directory
+`~/Library/Application Support/ha-satellite` (SUPPORT) and the socket
+`SUPPORT/audio.sock`. `-I` isolates it from the environment (no `PYTHONPATH`,
+no user site-packages). `app.log` and `just mac-status` show the exact command.
+
+- **Name**: the Mac's computer name until one is chosen with Name… in the menu.
+- **MAC address**: the permanent address of the built-in Wi-Fi (SystemConfiguration,
+  the lowest numbered Wi-Fi interface; on a Mac without Wi-Fi, the built-in
+  Ethernet `en0`; never a dock or adapter). Pinning it keeps one device in Home
+  Assistant when the Mac moves between Wi-Fi and a dock. The menu shows it
+  ("Network: Wi-Fi en0, aa:bb:…"). Without a built-in interface the option is
+  left out and LVA uses the active interface's address.
+- `--host 0.0.0.0` listens on every interface and advertises the detected
+  address; `--follow-network` reconnects and announces again after sleep or an
+  address change.
+
+`~/Library/Application Support/ha-satellite/satellite.json` is optional, and
+every key in it is optional:
 
 | Key | Meaning |
 | --- | --- |
-| `python` | absolute path of the interpreter, `<repo>/.venv/bin/python` |
-| `cwd` | absolute working directory, the repository |
-| `args` | the full argument list; the app adds nothing, so the same command runs by hand |
-| `env` | extra environment (`LVA_LIBMPV_DIR`, `PYTHONUNBUFFERED`) |
-| `socket` | socket path, default `~/Library/Application Support/ha-satellite/audio.sock` |
+| `name` | the satellite's name in Home Assistant, written by Name… (1 to 64 characters, no control characters) |
+| `mac_address` | overrides the detected address |
+| `host` | overrides `0.0.0.0` |
+| `follow_network` | `false` leaves out `--follow-network` |
+| `extra_args` | more LVA flags, appended (for example `["--debug"]`) |
+| `env` | extra environment, over the app's |
+| `python`, `cwd` | development: another interpreter (a repository's venv, without `-I -B`) and working directory |
+| `socket` | socket path |
 | `agc` | voice-processing automatic gain, default `false`; read at app start (quit and reopen to compare) |
 
-The example's arguments: `--name`, `--mac-address` (pinned identity), `--host
-0.0.0.0` (listen on every interface, advertise the detected address),
-`--follow-network` (reconnect and announce again after sleep or an address
-change), `--audio-input-socket`, `--audio-output-socket` and `--control-socket`
-(all three on the app's socket), `--persist-mute` (Listening off survives
-restarts), `--disable-peripheral-api`, and the preferences and downloads in the
-support directory. A test parses them with LVA's own parser, so they stay valid.
-
-Paths must be absolute: at login the app gets a minimal environment, without the
-Nix shell. Without `satellite.json` the app only serves the socket.
+Keys starting with `_` are ignored. An invalid file stops the satellite and the
+menu says why. A test parses the app's arguments with LVA's own parser
+(`tests/fixtures/macos_app/command.json`, shared by the Swift and Python tests),
+so they stay valid.
 
 ## First run and permissions
 
@@ -113,13 +176,18 @@ Nix shell. Without `satellite.json` the app only serves the socket.
 
 ## Menu
 
-- Status lines: Home Assistant connection, microphone, satellite process.
+- Title and status lines: the satellite's name, Home Assistant connection,
+  microphone, satellite process, and the network identity (interface and MAC
+  address the satellite announces).
 - **Listen for Wake Word**: the satellite's mute switch in Home Assistant, inverted,
   kept in sync both ways. Turning it off releases the microphone (see Sleep).
 - **Talk Now** (default ⌃⌥Space): starts a conversation even when the wake word is
   off; pressed during a conversation or a ringing timer, it stops it. **Stop**
   appears while a conversation or timer runs.
 - **Talk Now Shortcut**: ⌃⌥Space, ⌃⌥⌘Space, ⌃⇧Space, the Dictation key (F5), or none.
+- **Name…**: the satellite's name in Home Assistant. It is saved in
+  `satellite.json` and the satellite restarts to announce it; Home Assistant
+  keeps the same device (same MAC address) under the new name.
 - **Replace Siri…**: what can and cannot be done (below).
 - **Open at Login**.
 - **Troubleshooting**: Open Logs, Microphone Access…, Restart Satellite, Run
@@ -151,7 +219,7 @@ Home Assistant disconnected for more than 30 s, `satellite.json` invalid).
 - **Lid closed with an external display** (clamshell mode): the Mac stays awake but
   the built-in microphone is switched off by the hardware, so the satellite hears
   nothing until the lid opens.
-- **Dock and Wi-Fi**: the pinned MAC address keeps one device in Home Assistant;
+- **Dock and Wi-Fi**: the pinned Wi-Fi MAC address keeps one device in Home Assistant;
   with `--follow-network` the satellite announces its new address and Home
   Assistant reconnects.
 
@@ -182,7 +250,7 @@ shortcut (needs Input Monitoring or Accessibility), Shortcuts and Spotlight acti
 
 | Path | Content |
 | --- | --- |
-| `~/Library/Application Support/ha-satellite/` | `satellite.json`, `audio.sock`, `audio.lock`, `run/satellite.pid`, the satellite's preferences and downloads (directory mode 0700) |
+| `~/Library/Application Support/ha-satellite/` | `satellite.json` (optional), `audio.sock`, `audio.lock`, `run/satellite.pid`, the satellite's preferences and downloads (directory mode 0700) |
 | `~/Library/Logs/HA Satellite/satellite.log` | the Python satellite's output (rotated above 10 MB, one `.1` kept) |
 | `~/Library/Logs/HA Satellite/app.log` | the app: engine starts, connections, child exits and restarts, menu state |
 
@@ -191,7 +259,7 @@ shortcut (needs Input Monitoring or Accessibility), Shortcuts and Spotlight acti
 log live. For development, `HA_SATELLITE_HOME` and `HA_SATELLITE_LOGS` move these
 directories (the first-run dialog is then skipped), and Troubleshooting > Run
 Satellite Process off lets you start the Python satellite by hand against the
-running app (the `args` of `satellite.json`, from the repository).
+running app (the command of `just mac-status`, or from a repository's venv).
 
 ## Uninstall
 
@@ -203,17 +271,18 @@ just mac-uninstall --purge   # also delete the configuration, preferences and lo
 The Dictation key remap is removed too. Deleting the app without `uninstall`
 leaves a stale Login Items entry. The command prints how to forget the
 permissions (`tccutil reset Microphone io.iostud.ha-satellite`; Local Network in
-System Settings). `.venv/` is left in the repository.
+System Settings).
 
 ## Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
-| Menu says the configuration is invalid | the message names the key or placeholder; `just mac-status` shows the same |
-| Satellite not running, restarting | `satellite.log`: a wrong `python` path, a missing libmpv (`LVA_LIBMPV_DIR`), an invalid MAC; the app restarts it after 2, 5, 10, then 30 s |
+| Menu says the configuration is invalid | the message names the key; `just mac-status` shows the same |
+| Satellite not running, restarting | `satellite.log`; `just mac-check` checks the bundle; the app restarts it after 2, 5, 10, then 30 s |
+| "Damaged" or "cannot be opened" for a downloaded build | the quarantine of an ad hoc build: see Download a build from GitHub |
 | Microphone not authorized | Troubleshooting > Microphone Access…; after an ad hoc rebuild the grant is gone |
 | Home Assistant never finds it | Local Network permission for HA Satellite; same network; Wi-Fi client isolation; `satellite.log` shows the advertised address |
-| Two devices in Home Assistant | the MAC changed: set `--mac-address` to the Wi-Fi MAC and delete the extra device |
+| Two devices in Home Assistant | the MAC changed: check the menu's Network line (or set `mac_address` in `satellite.json`) and delete the extra device |
 | The satellite answers itself | TTS must go through the app (`--audio-output-socket`); run `just mac-echo-test` (quit the app first) |
 | The Mac does not sleep | expected while listening; turn off Listen for Wake Word, then `pmset -g assertions` should show no `coreaudiod` hold after 5 s |
 | No sound after a device change | the engine is rebuilt 1.5 s after a device change; `app.log` shows it; Troubleshooting > Restart Satellite |
@@ -295,4 +364,6 @@ audio rules, playback accounting, supervisor, configuration, menu model, key
 remap); `Sources/HASatellite` is the AppKit shell (menu, hotkey, login item, power
 events, command line). The tests use a fake audio engine behind a real Unix
 socket, and `/bin/sh` scripts as the supervised child. CI runs them on
-`macos-latest` together with the Python suite installed from `requirements.txt`.
+`macos-latest` together with the Python suite installed from `requirements.txt`,
+then builds the app ad hoc signed, runs `macos/build.sh check` on it and uploads
+it (Download a build from GitHub).
