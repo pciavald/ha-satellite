@@ -1,7 +1,9 @@
 """Runs mDNS zeroconf service for Home Assistant discovery."""
 
+import errno
 import logging
 import socket
+import sys
 from typing import List, Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,6 +15,32 @@ except ImportError:
     raise
 
 MDNS_TARGET_IP = "224.0.0.251"
+
+
+class LocalNetworkFilter(logging.Filter):
+    """
+    Explains zeroconf's "Error with socket ... No route to host" on macOS.
+
+    macOS refuses multicast sends with EHOSTUNREACH while the app has no
+    Local Network access (before the prompt is answered, or when it was
+    denied); zeroconf logs it once per socket with a traceback. Nothing else
+    is wrong: the service is announced again on the next query once access is
+    granted, and Home Assistant connects to a known address meanwhile.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        error = record.exc_info[1] if record.exc_info else None
+        if isinstance(error, OSError) and error.errno == errno.EHOSTUNREACH and str(record.msg).startswith("Error with socket"):
+            socket_description = str(record.msg)[len("Error with socket ") :].rsplit("): %s", 1)[0]
+            record.msg = "mDNS send refused on %s (no route to host): HA Satellite has no Local Network access yet; allow it in System Settings > Privacy & Security > Local Network"
+            record.args = (socket_description,)
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+if sys.platform == "darwin":
+    logging.getLogger("zeroconf").addFilter(LocalNetworkFilter())
 
 
 class HomeAssistantZeroconf:

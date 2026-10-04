@@ -1,5 +1,8 @@
 """Unit tests for HomeAssistantZeroconf."""
 
+import errno
+import logging
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -237,3 +240,39 @@ class TestWithdraw:
             await zc.async_announce()
 
         zc._mock_zc.async_update_service.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# macOS Local Network refusals
+# ---------------------------------------------------------------------------
+
+
+class TestLocalNetworkFilter:
+    def record(self, error):
+        msg = "Error with socket 12 (('10.1.1.198', 5353))): %s"
+        return logging.LogRecord("zeroconf", logging.WARNING, __file__, 1, msg, (error,), (type(error), error, None))
+
+    def test_no_route_to_host_becomes_one_line(self):
+        from linux_voice_assistant.zeroconf import LocalNetworkFilter
+
+        record = self.record(OSError(errno.EHOSTUNREACH, "No route to host"))
+
+        assert LocalNetworkFilter().filter(record)
+        assert record.exc_info is None
+        expected = "mDNS send refused on 12 (('10.1.1.198', 5353)) (no route to host): HA Satellite has no Local Network access yet; allow it in System Settings > Privacy & Security > Local Network"
+        assert record.getMessage() == expected
+
+    def test_other_errors_are_kept(self):
+        from linux_voice_assistant.zeroconf import LocalNetworkFilter
+
+        record = self.record(OSError(errno.EADDRNOTAVAIL, "Can't assign requested address"))
+
+        assert LocalNetworkFilter().filter(record)
+        assert record.exc_info is not None
+        assert record.getMessage().startswith("Error with socket")
+
+    def test_installed_only_on_macos(self):
+        from linux_voice_assistant.zeroconf import LocalNetworkFilter
+
+        installed = any(isinstance(f, LocalNetworkFilter) for f in logging.getLogger("zeroconf").filters)
+        assert installed == (sys.platform == "darwin")
