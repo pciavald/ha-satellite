@@ -3,17 +3,23 @@
 import functools
 import http.server
 import importlib.util
+import io
 import threading
+import time
+import wave
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from aioesphomeapi.api_pb2 import VoiceAssistantAnnounceFinished  # type: ignore[attr-defined]
+from aioesphomeapi.model import VoiceAssistantEventType
 
 from linux_voice_assistant.helper_protocol import FrameType
 from linux_voice_assistant.mpv_player import MpvMediaPlayer
 from linux_voice_assistant.player.helper import CHUNK_SAMPLES, HelperPlayer, decode_pcm
 from linux_voice_assistant.player.state import PlayerState
-from tests.unit.conftest import install_requirements
+from tests.unit.conftest import install_requirements, make_satellite
 from tests.unit.fake_engine import FakeEngine, fixture_json, wait_until
 
 _SOUNDS_DIR = Path(__file__).resolve().parents[2] / "sounds"
@@ -24,7 +30,7 @@ needs_av = pytest.mark.skipif(importlib.util.find_spec("av") is None, reason="Py
 def fake_decoder(items):
     """Decoder returning items[url]: a list of int16 arrays, or an exception to raise."""
 
-    def decode(url):
+    def decode(url, _cancelled):
         result = items[url]
         if isinstance(result, Exception):
             raise result
@@ -187,7 +193,7 @@ class TestPause:
     def test_pause_flushes_and_resume_continues(self, engine):
         gate = threading.Event()
 
-        def decode(_url):
+        def decode(_url, _cancelled):
             yield np.full(10, 1, dtype=np.int16)
             gate.wait(5.0)
             yield np.full(10, 2, dtype=np.int16)
@@ -287,3 +293,101 @@ class TestPyAV:
         finally:
             player.close()
         assert len(pcm(engine.connections[0])) > 4800
+
+
+def wav_bytes(seconds: float, rate: int = 16000) -> bytes:
+    """A 440 Hz tone as a 16-bit mono WAV file."""
+    t = np.arange(int(seconds * rate)) / rate
+    samples = (np.sin(2 * np.pi * 440 * t) * 16000).astype("<i2")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes(samples.tobytes())
+    return out.getvalue()
+
+
+class SlowTTSServer:
+    """Loopback stand-in for Home Assistant's tts_proxy: answers after `delay` seconds, as a TTS engine still synthesizing."""
+
+    def __init__(self, body: bytes, delay: float) -> None:
+        self.requests = 0
+        self.release = threading.Event()
+        server = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                server.requests += 1
+                server.release.wait(delay)
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/x-wav")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.http = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.http.daemon_threads = True
+        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.http.server_address[1]}/api/tts_proxy/test.wav"
+
+    def close(self) -> None:
+        self.release.set()
+        self.http.shutdown()
+        self.http.server_close()
+
+
+@needs_av
+class TestSlowTTS:
+    """The first live test: tts_proxy took longer than PyAV's 5 s open timeout, which cancelled with AVERROR_EXIT."""
+
+    def test_tts_answered_late_plays_to_the_end_after_run_end(self, tmp_path, engine):
+        server = SlowTTSServer(wav_bytes(0.5), delay=6.0)
+        player = HelperPlayer(engine.path, backoff=(0.05, 0.1))
+        try:
+            assert player.wait_connected(5.0)
+            sat = make_satellite(tmp_path, {"tts_player": MpvMediaPlayer(player=player)})
+            sat.send_messages = MagicMock()
+
+            sat.handle_voice_event(VoiceAssistantEventType.VOICE_ASSISTANT_RUN_START, {"url": server.url})
+            sat.handle_voice_event(VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END, {"url": server.url})
+            sat.handle_voice_event(VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, {})
+
+            def announced():
+                return any(isinstance(m, VoiceAssistantAnnounceFinished) for call in sat.send_messages.call_args_list for m in call.args[0])
+
+            wait_until(announced, timeout=20.0)
+            assert player.state() == PlayerState.IDLE
+            samples = pcm(engine.role("play:tts"))
+            assert abs(len(samples) - 24000) < 2400, len(samples)
+            assert np.abs(samples).max() > 8000
+            assert server.requests == 1
+            assert not sat._pipeline_active
+        finally:
+            player.close()
+            server.close()
+
+    def test_stop_while_waiting_for_the_server_lets_the_next_sound_play(self, engine):
+        server = SlowTTSServer(wav_bytes(0.5), delay=30.0)
+        player = HelperPlayer(engine.path, backoff=(0.05, 0.1))
+        done = []
+        try:
+            assert player.wait_connected(5.0)
+            media = MpvMediaPlayer(player=player)
+            media.play(server.url, done_callback=lambda: done.append("tts"))
+            wait_until(lambda: server.requests == 1)
+
+            media.stop()
+            assert done == ["tts"]
+            started = time.monotonic()
+            media.play(str(_SOUNDS_DIR / "wake_word_triggered.flac"), done_callback=lambda: done.append("wake"))
+
+            wait_until(lambda: "wake" in done, timeout=10.0)
+            assert time.monotonic() - started < 5.0
+            assert player.state() == PlayerState.IDLE
+        finally:
+            player.close()
+            server.close()

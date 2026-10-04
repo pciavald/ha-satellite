@@ -10,6 +10,7 @@ import logging
 import queue
 import socket
 import threading
+import urllib.request
 from typing import Callable, Dict, Iterable, Iterator, Optional, Tuple
 
 import numpy as np
@@ -24,21 +25,106 @@ SAMPLE_RATE = 48000
 OUTPUT_FORMAT = {"format": "s16le", "rate": SAMPLE_RATE, "channels": 1}
 CHUNK_SAMPLES = SAMPLE_RATE // 50  # 20 ms between cancel checks
 
-Decoder = Callable[[str], Iterable[np.ndarray]]
+# Seconds without any byte from the server, as mpv's network-timeout: Home
+# Assistant's tts_proxy answers only once the TTS engine has produced audio,
+# which takes several seconds with a local TTS or a streaming conversation agent
+NETWORK_TIMEOUT = 60.0
+HTTP_CHUNK = 16384
+HTTP_BUFFER = 1 << 20  # read ahead at most 1 MiB of a stream
+
+Decoder = Callable[[str, threading.Event], Iterable[np.ndarray]]
 
 
-def decode_pcm(url: str) -> Iterator[np.ndarray]:
+class Cancelled(Exception):
+    """The item was stopped while its source was being read."""
+
+
+class HttpSource:
+    """
+    Readable, non-seekable file object over an HTTP(S) URL for av.open().
+
+    A daemon thread downloads ahead; read() waits for data in 50 ms steps and
+    raises Cancelled as soon as ``cancelled`` is set, so stop() never waits
+    for a slow server. PyAV's own timeouts are not used: they cancel with
+    AVERROR_EXIT ("Immediate exit requested") however long the server is
+    legitimately busy.
+    """
+
+    def __init__(self, url: str, cancelled: threading.Event, timeout: float = NETWORK_TIMEOUT) -> None:
+        self.url = url
+        self._cancelled = cancelled
+        self._timeout = timeout
+        self._buffer = bytearray()
+        self._done = False
+        self._error: Optional[BaseException] = None
+        self._closed = False
+        self._condition = threading.Condition()
+        threading.Thread(target=self._download, name="helper-http", daemon=True).start()
+
+    def _download(self) -> None:
+        try:
+            with urllib.request.urlopen(self.url, timeout=self._timeout) as response:  # nosec B310 (Home Assistant URLs)
+                while True:
+                    with self._condition:
+                        while len(self._buffer) >= HTTP_BUFFER and not self._closed:
+                            self._condition.wait(0.05)
+                        if self._closed:
+                            return
+                    data = response.read1(HTTP_CHUNK)
+                    with self._condition:
+                        if not data:
+                            break
+                        self._buffer += data
+                        self._condition.notify_all()
+        except Exception as err:  # pylint: disable=broad-except
+            with self._condition:
+                self._error = err
+        finally:
+            with self._condition:
+                self._done = True
+                self._condition.notify_all()
+
+    def read(self, size: int = -1) -> bytes:
+        with self._condition:
+            while not self._buffer and not self._done:
+                if self._cancelled.is_set():
+                    raise Cancelled()
+                self._condition.wait(0.05)
+            if self._cancelled.is_set():
+                raise Cancelled()
+            if not self._buffer and self._error is not None:
+                raise self._error
+            size = len(self._buffer) if size is None or size < 0 else size
+            data = bytes(self._buffer[:size])
+            del self._buffer[:size]
+            self._condition.notify_all()
+            return data
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+
+def decode_pcm(url: str, cancelled: Optional[threading.Event] = None) -> Iterator[np.ndarray]:
     """Yield 48 kHz mono s16 sample arrays of a local file or an HTTP(S) URL."""
     import av  # pylint: disable=import-error
 
-    with av.open(url, timeout=(5.0, 15.0)) as container:
-        stream = container.streams.audio[0]
-        resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
-        for frame in container.decode(stream):
-            for resampled in resampler.resample(frame):
+    source = None
+    if url.startswith(("http://", "https://")):
+        source = HttpSource(url, cancelled if cancelled is not None else threading.Event())
+    try:
+        with av.open(source if source is not None else url) as container:
+            stream = container.streams.audio[0]
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+            for frame in container.decode(stream):
+                for resampled in resampler.resample(frame):
+                    yield resampled.to_ndarray().reshape(-1)
+            for resampled in resampler.resample(None):
                 yield resampled.to_ndarray().reshape(-1)
-        for resampled in resampler.resample(None):
-            yield resampled.to_ndarray().reshape(-1)
+    finally:
+        if source is not None:
+            source.close()
 
 
 class _Item:
@@ -49,18 +135,14 @@ class _Item:
         self.paused = paused
 
 
-class _Cancelled(Exception):
-    pass
-
-
 class _DecodeError(Exception):
     pass
 
 
-def _decoded(decode: Decoder, url: str) -> Iterator[np.ndarray]:
-    """Decoder output, with any decoding failure (PyAV raises OSError subclasses) as _DecodeError."""
+def _decoded(decode: Decoder, item: _Item) -> Iterator[np.ndarray]:
+    """Decoder output; a failure is Cancelled once the item is stopped, else _DecodeError (PyAV raises OSError subclasses)."""
     try:
-        iterator = iter(decode(url))
+        iterator = iter(decode(item.url, item.cancelled))
         while True:
             try:
                 samples = next(iterator)
@@ -70,6 +152,8 @@ def _decoded(decode: Decoder, url: str) -> Iterator[np.ndarray]:
     except GeneratorExit:
         raise
     except Exception as err:  # pylint: disable=broad-except
+        if item.cancelled.is_set():
+            raise Cancelled() from err
         raise _DecodeError(str(err) or type(err).__name__) from err
 
 
@@ -224,21 +308,21 @@ class HelperPlayer(AudioPlayer):
 
         self._drained.clear()
         try:
-            for samples in _decoded(self._decode, item.url):
+            for samples in _decoded(self._decode, item):
                 for start in range(0, len(samples), CHUNK_SAMPLES):
                     self._wait_while_paused(item, connection)
                     if item.cancelled.is_set():
-                        raise _Cancelled()
+                        raise Cancelled()
                     self._send_pcm(connection, samples[start : start + CHUNK_SAMPLES])
                     self._set_playing(item)
             while True:
                 if item.cancelled.is_set():
-                    raise _Cancelled()
+                    raise Cancelled()
                 self._drained.clear()
                 connection.send(FrameType.END)
                 if self._wait_drained(item, connection):
                     break
-        except _Cancelled:
+        except Cancelled:
             self._flush(connection)
             self._finish(item, None)
         except _DecodeError as err:
@@ -276,7 +360,7 @@ class HelperPlayer(AudioPlayer):
         """Wait for the DRAINED of an END; False if a pause dropped the audio and END must be sent again."""
         while not self._drained.wait(0.05):
             if item.cancelled.is_set():
-                raise _Cancelled()
+                raise Cancelled()
             if self._wait_while_paused(item, connection):
                 return False
             self._check_connection(connection)
