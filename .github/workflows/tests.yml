@@ -26,7 +26,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmpv-dev mpv
+          sudo apt-get install -y libmpv-dev mpv pulseaudio
+          pulseaudio --start --exit-idle-time=-1
 
       - name: Install dependencies
         run: |
