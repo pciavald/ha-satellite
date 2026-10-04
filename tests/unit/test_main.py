@@ -252,15 +252,16 @@ class TestEngineLogFormat:
     def test_no_engine_keeps_the_default_format(self):
         from linux_voice_assistant.__main__ import _log_format
 
-        assert _log_format(_engine_args()) == {}
+        import logging
+
+        assert _log_format(_engine_args()) == (logging.BASIC_FORMAT, None)
 
     def test_engine_lines_carry_the_time_to_the_millisecond(self):
         import logging
 
         from linux_voice_assistant.__main__ import _log_format
 
-        options = _log_format(_engine_args(audio_input_socket="/s", audio_output_socket="/s", control_socket="/s"))
-        formatter = logging.Formatter(options["format"], options["datefmt"])
+        formatter = logging.Formatter(*_log_format(_engine_args(audio_input_socket="/s", audio_output_socket="/s", control_socket="/s")))
         record = logging.LogRecord("lva", logging.INFO, __file__, 1, "Wake word", None, None)
         record.created = 1759622400.0421
         record.msecs = 42.1

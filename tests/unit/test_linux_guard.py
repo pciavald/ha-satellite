@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import subprocess
 import sys
 import tomllib
@@ -118,7 +119,7 @@ class TestLinuxCliDefaults:
 
         assert args.listen_during_wake_sound is False
         assert lva_main._engine_cancels_echo(args) is False
-        assert lva_main._log_format(args) == {}
+        assert lva_main._log_format(args) == (logging.BASIC_FORMAT, None)
 
     def test_linux_cli_still_accepts_dual_channel_capture(self, monkeypatch):
         assert _parse_cli(monkeypatch, ["--audio-input-channels", "2"]).audio_input_channels == 2

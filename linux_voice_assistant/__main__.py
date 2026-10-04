@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import soundcard as sc
@@ -285,7 +285,8 @@ async def main() -> Optional[Shutdown]:
         args.debug = True
         _setup_logging(args)
     else:
-        logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, **_log_format(args))
+        log_format, date_format = _log_format(args)
+        logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, format=log_format, datefmt=date_format)
 
     _LOGGER.debug(args)
     if args.list_input_devices:
@@ -796,11 +797,11 @@ def _advertised_address(bind_address: Optional[str], network_interface: Optional
     return detected
 
 
-def _log_format(args: argparse.Namespace) -> Dict[str, str]:
-    """Timestamped lines (to the millisecond) under the audio engine, whose log file has no time of its own."""
+def _log_format(args: argparse.Namespace) -> Tuple[str, Optional[str]]:
+    """Timestamped lines (to the millisecond) under the audio engine, whose log file has no time of its own; logging's default otherwise."""
     if not (args.audio_input_socket or args.audio_output_socket or args.control_socket):
-        return {}
-    return {"format": "%(asctime)s.%(msecs)03d %(levelname)s:%(name)s:%(message)s", "datefmt": "%Y-%m-%d %H:%M:%S"}
+        return logging.BASIC_FORMAT, None
+    return "%(asctime)s.%(msecs)03d %(levelname)s:%(name)s:%(message)s", "%Y-%m-%d %H:%M:%S"
 
 
 def _engine_cancels_echo(args: argparse.Namespace) -> bool:
