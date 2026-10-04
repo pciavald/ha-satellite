@@ -125,11 +125,11 @@
         ],
         [
           "client",
-          "control_set_agc"
+          "control_client_command"
         ],
         [
           "helper",
-          "control_set_agc_ack"
+          "control_unknown_ack"
         ]
       ]
     }

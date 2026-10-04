@@ -431,13 +431,11 @@ final class HubTests: XCTestCase {
     XCTAssertEqual(mic.code(mic.nextEvent()), "network_changed")
   }
 
-  func testSetAGCFromControl() throws {
+  func testCommandsFromTheSatelliteAreRefused() throws {
     let control = try connectControl(muted: false)
     control.send(.json(.control, ["command": "set_agc", "id": 3, "data": ["on": true]]))
-    XCTAssertEqual(try control.next()?.object() as NSDictionary?, ["ack": 3, "ok": true] as NSDictionary)
-    XCTAssertTrue(hub.state.audio.agc)
-    control.send(.json(.control, ["command": "reboot", "id": 4]))
-    XCTAssertEqual(try control.next()?.object()["reason"] as? String, "unknown_command")
+    XCTAssertEqual(try control.next()?.object() as NSDictionary?, ["ack": 3, "ok": false, "reason": "unknown_command"] as NSDictionary)
+    XCTAssertFalse(hub.state.audio.agc)
   }
 
   func testProtocolErrorsCloseTheConnection() throws {

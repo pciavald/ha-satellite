@@ -54,8 +54,9 @@ public enum ControlCommand: String, Sendable {
 public enum ControlInbound: Equatable {
   case state(Snapshot)
   case ack(id: Int, ok: Bool, reason: String?)
-  /// A command from Python to the app (`set_agc`).
-  case command(name: String, id: Int?, data: [String: Bool])
+  /// A command from Python to the app: none is defined, each is refused with
+  /// `unknown_command`.
+  case command(name: String, id: Int?)
   case unknown
 }
 
@@ -71,8 +72,7 @@ public enum ControlMessage {
       return .ack(id: id, ok: object["ok"] as? Bool ?? false, reason: object["reason"] as? String)
     }
     if let name = object["command"] as? String {
-      let data = (object["data"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Bool }
-      return .command(name: name, id: object["id"] as? Int, data: data)
+      return .command(name: name, id: object["id"] as? Int)
     }
     return .unknown
   }

@@ -260,7 +260,7 @@ class TestTalk:
 
     async def test_acks_from_the_engine_are_ignored(self, control):
         _channel, connection = control
-        connection.send_json(FrameType.CONTROL, fixture_json("control_set_agc_ack"))
+        connection.send_json(FrameType.CONTROL, fixture_json("control_unknown_ack"))
         await asyncio.sleep(0.2)
 
         assert acks(connection) == []

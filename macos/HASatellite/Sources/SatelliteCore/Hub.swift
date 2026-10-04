@@ -337,14 +337,9 @@ public final class Hub: @unchecked Sendable {
     case .ack(let id, let ok, let reason):
       control.ack(id: id, ok: ok, reason: reason)
       audio.update { $0.pendingTalk = control.pendingTalk }
-    case .command(let name, let id, let data):
-      if name == "set_agc", let on = data["on"] {
-        audio.setAGC(on)
-        log("AGC \(on ? "on" : "off") (asked by the satellite)")
-        if let id { connection.send(ControlMessage.ack(id, ok: true)) }
-      } else if let id {
-        connection.send(ControlMessage.ack(id, ok: false, reason: "unknown_command"))
-      }
+    case .command(let name, let id):
+      log("refused the satellite's unknown command \(name)")
+      if let id { connection.send(ControlMessage.ack(id, ok: false, reason: "unknown_command")) }
     case .unknown:
       break
     }

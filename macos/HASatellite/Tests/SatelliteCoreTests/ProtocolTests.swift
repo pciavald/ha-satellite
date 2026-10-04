@@ -127,7 +127,6 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(hex(Wire.encode(HelloRefusal(reason: "unsupported_proto").reply)), frames["hello_refused_proto"]!["hex"] as? String)
     XCTAssertEqual(hex(Wire.encode(ControlMessage.command(.muteMic, id: 7))), frames["control_mute_mic"]!["hex"] as? String)
     XCTAssertEqual(hex(Wire.encode(ControlMessage.command(.startListening, id: 9, data: ["allow_muted": true]))), frames["control_start_listening"]!["hex"] as? String)
-    XCTAssertEqual(hex(Wire.encode(ControlMessage.ack(3, ok: true))), frames["control_set_agc_ack"]!["hex"] as? String)
     XCTAssertEqual(hex(Wire.encode(ControlMessage.ack(4, ok: false, reason: "unknown_command"))), frames["control_unknown_ack"]!["hex"] as? String)
     XCTAssertEqual(hex(Wire.encode(.event("overrun", ["dropped": 480]))), frames["event_overrun"]!["hex"] as? String)
     XCTAssertEqual(hex(Wire.encode(ProtocolError.unknownType(9).frame)), frames["event_protocol_error"]!["hex"] as? String)
@@ -139,7 +138,7 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(try ControlMessage.parse(Fixtures.frame("control_state_error")),
                    .state(Snapshot(rev: 43, haConnected: true, muted: true, ptt: true, phase: "listening", media: "paused", error: "stt-no-text-recognized")))
     XCTAssertEqual(try ControlMessage.parse(Fixtures.frame("control_ack_refused")), .ack(id: 9, ok: false, reason: "pipeline_active"))
-    XCTAssertEqual(try ControlMessage.parse(Fixtures.frame("control_set_agc")), .command(name: "set_agc", id: 3, data: ["on": true]))
+    XCTAssertEqual(try ControlMessage.parse(Fixtures.frame("control_client_command")), .command(name: "self_destruct", id: 4))
     XCTAssertEqual(try ControlMessage.parse(.json(.control, ["something": 1])), .unknown)
     XCTAssertThrowsError(try ControlMessage.parse(.json(.control, ["state": ["phase": "idle"]])))
     XCTAssertThrowsError(try ControlMessage.parse(Frame(.event, Data("{}".utf8))))
