@@ -1,9 +1,12 @@
 # mpv_player.py
 import logging
-from typing import Callable, List, Optional, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 from .player.libmpv import LibMpvPlayer
 from .player.state import PlayerState
+
+if TYPE_CHECKING:
+    from .player.helper import HelperPlayer
 
 
 class MpvMediaPlayer:
@@ -14,9 +17,10 @@ class MpvMediaPlayer:
     delegates all playback logic to LibMpvPlayer.
     """
 
-    def __init__(self, device: str | None = None) -> None:
+    def __init__(self, device: str | None = None, player: "Optional[Union[LibMpvPlayer, HelperPlayer]]" = None) -> None:
         self._log = logging.getLogger(self.__class__.__name__)
-        self._player = LibMpvPlayer(device=device)
+        # player replaces libmpv, e.g. a HelperPlayer for --audio-output-socket
+        self._player: "Union[LibMpvPlayer, HelperPlayer]" = player if player is not None else LibMpvPlayer(device=device)
         self._done_callback: Optional[Callable[[], None]] = None
         self._playlist: List[str] = []
 
@@ -53,7 +57,7 @@ class MpvMediaPlayer:
                 self._player.stop(for_replacement=True)
             self._done_callback = None
 
-        self._log.info("Playing %d URL(s): %s", len(urls), urls[0])
+        self._log.info("Playing %d URL(s) with %s: %s", len(urls), type(self._player).__name__, urls[0])
 
         # Store playlist and callback
         self._playlist = urls

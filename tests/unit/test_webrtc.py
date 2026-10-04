@@ -1,8 +1,11 @@
 """Unit tests for WebRTCProcessor."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="webrtc-noise-gain is a Linux-only dependency, not installed on other platforms")
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

@@ -1,6 +1,10 @@
+import importlib.util
 import logging
 
 _LOGGER = logging.getLogger(__name__)
+
+# webrtc-noise-gain is only installed on Linux; it is imported when used
+AVAILABLE = importlib.util.find_spec("webrtc_noise_gain") is not None
 
 
 class WebRTCProcessor:

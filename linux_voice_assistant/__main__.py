@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import soundcard as sc
@@ -18,16 +18,14 @@ from getmac import get_mac_address  # type: ignore
 from pymicro_wakeword import MicroWakeWord, MicroWakeWordFeatures
 from pyopen_wakeword import OpenWakeWord, OpenWakeWordFeatures
 
+from . import network
 from .models import Preferences, ServerState, WakeWordType, initial_stop_word_threshold
+from .monitor import NetworkMonitor
 from .mpv_player import MpvMediaPlayer
 from .peripheral_api import LVAEvent, PeripheralAPIServer
 from .satellite import VoiceSatelliteProtocol
-from .util import (
-    get_default_interface,
-    get_default_ipv4,
-    get_esphome_version,
-    get_version,
-)
+from .shutdown import Shutdown
+from .util import get_esphome_version, get_version
 from .wake_word import find_available_wake_words, load_stop_model, load_wake_models
 from .webrtc import WebRTCProcessor
 from .zeroconf import HomeAssistantZeroconf
@@ -42,7 +40,7 @@ _SOUNDS_DIR = _REPO_DIR / "sounds"
 # -----------------------------------------------------------------------------
 
 
-async def main() -> None:
+async def main() -> Optional[Shutdown]:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--name",
@@ -176,6 +174,16 @@ async def main() -> None:
         "--network-interface",
         help="Network interface the application listens on (default: auto-detected by gateway)",
     )
+    parser.add_argument(
+        "--follow-network",
+        action="store_true",
+        help="Follow address changes and system sleep: reconnect Home Assistant and announce again over mDNS (addresses are followed with --host 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--mac-address",
+        type=_mac_address,
+        help="MAC address that identifies the device in Home Assistant (default: the network interface's)",
+    )
     # Note that default port is also set in docker-entrypoint.sh
     parser.add_argument(
         "--port",
@@ -233,6 +241,29 @@ async def main() -> None:
         action="store_true",
         help="Start listening immediately after wake word detection, without waiting for the wake sound to finish",
     )
+    # ------------------------------------------------------------------
+    # External audio engine over a Unix socket (the macOS app)
+    # ------------------------------------------------------------------
+    parser.add_argument(
+        "--audio-input-socket",
+        metavar="PATH",
+        help="Read the microphone from an audio engine on this Unix socket instead of a sound device",
+    )
+    parser.add_argument(
+        "--audio-output-socket",
+        metavar="PATH",
+        help="Play TTS, announcements and sounds through an audio engine on this Unix socket (music stays on mpv)",
+    )
+    parser.add_argument(
+        "--control-socket",
+        metavar="PATH",
+        help="Share state and take commands (mute, talk) through an audio engine on this Unix socket; exits when it is gone for 30 s",
+    )
+    parser.add_argument(
+        "--persist-mute",
+        action="store_true",
+        help="Remember the mute switch in the preferences file across restarts",
+    )
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -253,10 +284,9 @@ async def main() -> None:
     if args.colored_debug:
         args.debug = True
         _setup_logging(args)
-    elif args.debug:
-        logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        log_format, date_format = _log_format(args)
+        logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, format=log_format, datefmt=date_format)
 
     _LOGGER.debug(args)
     if args.list_input_devices:
@@ -264,24 +294,27 @@ async def main() -> None:
         print("=" * 13)
         for idx, mic in enumerate(sc.all_microphones()):
             print(f"[{idx}]", mic.name)
-        return
+        return None
 
     if args.list_output_devices:
-        from mpv import MPV
+        from .player.libmpv import import_mpv
 
-        player = MPV()
+        player = import_mpv().MPV()
         print("Audio output devices:")
         print("=" * 14)
 
         for speaker in player.audio_device_list:  # type: ignore
             print(speaker["name"] + ":", speaker["description"])
-        return
+        return None
 
     # Resolve network interface for mac-address detection
     if not args.network_interface:
         print("No network interface specified, try to detect default interface")
-        network_interface = get_default_interface()
+        network_interface = await network.wait_for_default_interface()
         print(f"Default interface detected: {network_interface}")
+        if network_interface is None and network.uses_route_backend():
+            _LOGGER.error("No usable network address found")
+            sys.exit(1)
     else:
         print("Network interface specified")
         network_interface = args.network_interface
@@ -290,15 +323,21 @@ async def main() -> None:
     # Resolve ip_address where the application will be listening
     if not args.host:
         print("No host (ip-address) specified, try to detect IP-Address")
-        host_ip_address = get_default_ipv4(network_interface)
+        host_ip_address = network.interface_ipv4(network_interface)
         print(f"IP-Address detected: {host_ip_address}")
     else:
         print("Host specified")
         print(f"Using host: {args.host}")
         host_ip_address = args.host
 
+    # Resolve the address announced over mDNS (the bind address unless it is 0.0.0.0)
+    advertised_ip_address = _advertised_address(host_ip_address, network_interface)
+
     # Resolve mac
-    if not (mac_address := get_mac_address(interface=network_interface)):
+    if args.mac_address:
+        mac_address = args.mac_address
+        print(f"Using MAC address: {mac_address}")
+    elif not (mac_address := get_mac_address(interface=network_interface)):
         print("No Mac address was found, app stopped.")
         sys.exit(1)
     mac_address_clean = mac_address.replace(":", "").lower()
@@ -329,16 +368,29 @@ async def main() -> None:
     args.download_dir = Path(args.download_dir)
     args.download_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve microphone
-    if args.audio_input_device is not None:
-        try:
-            args.audio_input_device = int(args.audio_input_device)
-        except ValueError:
-            pass
+    loop = asyncio.get_running_loop()
 
-        mic = sc.get_microphone(args.audio_input_device)
+    # Resolve microphone
+    engine_mic = None
+    engine_monitor: Dict[str, Any] = {}
+    if args.audio_input_socket:
+        engine_mic = _start_engine_microphone(args, loop, engine_monitor)
+        mic = engine_mic
     else:
-        mic = sc.default_microphone()
+        if args.audio_input_device is not None:
+            try:
+                args.audio_input_device = int(args.audio_input_device)
+            except ValueError:
+                pass
+
+            mic = sc.get_microphone(args.audio_input_device)
+        else:
+            mic = sc.default_microphone()
+
+        args.audio_input_channels = _input_channels(args.audio_input_channels, mic)
+
+        if sys.platform == "darwin":
+            _LOGGER.warning("No echo cancellation: the satellite hears its own playback (see --audio-input-socket)")
 
     # Load available wake words
     wake_word_dirs = [Path(ww_dir) for ww_dir in args.wake_word_dir]
@@ -395,12 +447,11 @@ async def main() -> None:
     if args.enable_thinking_sound:
         preferences.thinking_sound = 1
 
+    if args.persist_mute and preferences.muted is None:
+        preferences.muted = False
+
     if args.mic_auto_gain or args.mic_noise_suppression:
-        try:
-            import webrtc_noise_gain  # type: ignore[import-untyped] # noqa: F401
-        except ImportError:
-            _LOGGER.exception("Extras for webrtc are not installed")
-            sys.exit(1)
+        _require_webrtc()
 
     if args.mic_volume > 0.0:
         preferences.mic_volume = args.mic_volume
@@ -409,6 +460,12 @@ async def main() -> None:
 
     if args.mic_noise_suppression > 0:
         preferences.mic_noise_suppression = args.mic_noise_suppression
+
+    engine_player = None
+    if args.audio_output_socket:
+        from .player.helper import HelperPlayer
+
+        engine_player = HelperPlayer(args.audio_output_socket)
 
     # Load wake/stop models
     wake_models, active_wake_words, fallback_used = load_wake_models(
@@ -425,9 +482,9 @@ async def main() -> None:
     state = ServerState(
         name=device_name,
         friendly_name=friendly_name,
-        network_interface=network_interface,
+        network_interface=network_interface,  # type: ignore[arg-type]
         mac_address=mac_address,
-        ip_address=host_ip_address,
+        ip_address=advertised_ip_address,  # type: ignore[arg-type]
         version=version,
         esphome_version=esphome_version,
         audio_queue=Queue(),
@@ -437,7 +494,7 @@ async def main() -> None:
         active_wake_words=active_wake_words,
         stop_word=stop_model,
         music_player=MpvMediaPlayer(device=args.music_output_device or args.audio_output_device),
-        tts_player=MpvMediaPlayer(device=args.audio_output_device),
+        tts_player=MpvMediaPlayer(player=engine_player) if engine_player is not None else MpvMediaPlayer(device=args.audio_output_device),
         wakeup_sound=args.wakeup_sound,
         start_listening_sound=args.start_listening_sound,
         timer_finished_sound=args.timer_finished_sound,
@@ -461,8 +518,15 @@ async def main() -> None:
         mic_noise_suppression=preferences.mic_noise_suppression,
         audio_input_channels=args.audio_input_channels,
         timer_max_ring_seconds=args.timer_max_ring_seconds,
-        listen_during_wake_sound=args.listen_during_wake_sound,
+        listen_during_wake_sound=args.listen_during_wake_sound or _engine_cancels_echo(args),
+        listen_during_start_sound=_engine_cancels_echo(args),
     )
+
+    if engine_mic is not None:
+        state.input_processing = engine_mic.processing
+    if args.persist_mute:
+        state.persist_mute = True
+        state.muted = bool(preferences.muted)
 
     if fallback_used:
         # Fallback to the default model was used, save as active wake words
@@ -496,7 +560,8 @@ async def main() -> None:
     # ------------------------------------------------------------------
     # ESPHome TCP server (with retry on EADDRINUSE)
     # ------------------------------------------------------------------
-    loop = asyncio.get_running_loop()
+    shutdown = Shutdown(loop)
+    shutdown.install()
     max_attempts = 15
     attempt = 1
     server = None
@@ -517,10 +582,16 @@ async def main() -> None:
         _LOGGER.critical("Program will exit immediately - fix the error above first!")
         sys.exit(1)
 
+    def create_protocol() -> VoiceSatelliteProtocol:
+        protocol = VoiceSatelliteProtocol(state)
+        if args.follow_network:
+            protocol.tcp_keepalive = True
+        return protocol
+
     while attempt <= max_attempts:
         try:
             server = await loop.create_server(
-                lambda: VoiceSatelliteProtocol(state),
+                create_protocol,
                 host=host_ip_address,
                 port=args.port,
             )
@@ -553,9 +624,14 @@ async def main() -> None:
     # ------------------------------------------------------------------
     # Audio processing thread
     # ------------------------------------------------------------------
+    audio_stop = threading.Event()
+    audio_kwargs: Dict[str, Any] = {"stop": audio_stop, "on_error": lambda: shutdown.request_exit_threadsafe(1)}
+    if engine_mic is not None:
+        audio_kwargs["resumed"] = engine_mic.pop_resumed
     process_audio_thread = threading.Thread(
         target=process_audio,
         args=(state, mic, args.audio_input_block_size),
+        kwargs=audio_kwargs,
         daemon=True,
     )
     process_audio_thread.start()
@@ -565,9 +641,31 @@ async def main() -> None:
         port=args.port,
         name=state.name,
         mac_address=state.mac_address,
-        host_ip_address=host_ip_address,
+        host_ip_address=advertised_ip_address,  # type: ignore[arg-type]
+        interfaces=(network.physical_ipv4_addresses() or None) if args.follow_network else None,
+        friendly_name=friendly_name if args.follow_network else None,
     )
     await discovery.register_server()
+
+    monitor: Optional[NetworkMonitor] = None
+    monitor_task: Optional[asyncio.Task] = None
+    if args.follow_network:
+        follow_address = host_ip_address == "0.0.0.0"
+        if not follow_address:
+            _LOGGER.warning("--follow-network follows address changes only with --host 0.0.0.0, it will only announce again after sleep")
+        monitor = NetworkMonitor(
+            discovery,
+            connections=lambda: state.connections,
+            find_address=lambda: network.interface_ipv4(args.network_interface or network.default_interface()),
+            address=advertised_ip_address,
+            follow_address=follow_address,
+            on_address=lambda ip: setattr(state, "ip_address", ip),
+        )
+        if engine_mic is not None:
+            # The engine reports sleep and wake itself while it is connected
+            monitor.engine_events = lambda: engine_mic.connected
+        engine_monitor["monitor"] = monitor
+        monitor_task = asyncio.create_task(monitor.run())
 
     # ------------------------------------------------------------------
     # Start peripheral API and signal "getting started" to peripherals
@@ -590,19 +688,64 @@ async def main() -> None:
             )
             await asyncio.sleep(args.peripheral_startup_wait)
 
-    try:
-        async with server:  # type: ignore[union-attr]
-            _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
-            await server.serve_forever()  # type: ignore[union-attr]
-    except KeyboardInterrupt:
-        pass
-    finally:
+    control_channel = None
+    if args.control_socket:
+        from .control import ControlChannel
+
+        control_channel = ControlChannel(args.control_socket, state, on_lost=lambda: shutdown.request_exit(0), lva_version=version)
+        state.control_channel = control_channel
+        await control_channel.start()
+
+    _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
+    await shutdown.wait()
+
+    async def stop_monitor() -> None:
+        if monitor_task is not None:
+            monitor_task.cancel()
+        if monitor is not None:
+            await monitor.stop()
+
+    async def close_server() -> None:
+        server.close()  # type: ignore[union-attr]
+
+    async def stop_audio() -> None:
+        audio_stop.set()
         state.audio_queue.put_nowait(None)
-        process_audio_thread.join()
+        await asyncio.to_thread(process_audio_thread.join, 2.0)
+
+    async def stop_peripheral_api() -> None:
         if peripheral_api is not None:
             await peripheral_api.stop()
 
+    async def stop_control() -> None:
+        if control_channel is not None:
+            await control_channel.stop()
+
+    async def close_engine_microphone() -> None:
+        # Wakes the audio thread if it waits on a paused capture
+        if engine_mic is not None:
+            await asyncio.to_thread(engine_mic.close)
+
+    async def close_engine_player() -> None:
+        if engine_player is not None:
+            await asyncio.to_thread(engine_player.close)
+
+    steps = [
+        ("network monitor", stop_monitor),
+        ("zeroconf", discovery.async_close),
+        ("server", close_server),
+        ("peripheral API", stop_peripheral_api),
+    ]
+    if control_channel is not None:
+        steps.append(("control", stop_control))
+    if engine_mic is not None:
+        steps.append(("audio engine microphone", close_engine_microphone))
+    steps.append(("audio thread", stop_audio))
+    if engine_player is not None:
+        steps.append(("audio engine playback", close_engine_player))
+    await shutdown.cleanup(steps)
     _LOGGER.debug("Server stopped")
+    return shutdown
 
 
 # -----------------------------------------------------------------------------
@@ -640,8 +783,133 @@ def _setup_logging(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------------
 
 
-def process_audio(state: ServerState, mic, block_size: int):
-    """Process audio chunks from the microphone."""
+def _advertised_address(bind_address: Optional[str], network_interface: Optional[str]) -> Optional[str]:
+    """Return the address to announce: the bind address, or the detected one when bound to all interfaces."""
+    if bind_address != "0.0.0.0":
+        return bind_address
+
+    detected = network.interface_ipv4(network_interface)
+    if not detected:
+        _LOGGER.warning("Bound to 0.0.0.0 but no address was detected on %s, advertising 0.0.0.0", network_interface)
+        return bind_address
+
+    print(f"Advertising IP-Address: {detected}")
+    return detected
+
+
+def _log_format(args: argparse.Namespace) -> Tuple[str, Optional[str]]:
+    """Timestamped lines (to the millisecond) under the audio engine, whose log file has no time of its own; logging's default otherwise."""
+    if not (args.audio_input_socket or args.audio_output_socket or args.control_socket):
+        return logging.BASIC_FORMAT, None
+    return "%(asctime)s.%(msecs)03d %(levelname)s:%(name)s:%(message)s", "%Y-%m-%d %H:%M:%S"
+
+
+def _engine_cancels_echo(args: argparse.Namespace) -> bool:
+    """True when the audio engine both plays the sounds and removes them from the microphone.
+
+    Its voice processing cancels the satellite's own playback, so streaming
+    can start with the wake or start-listening sound instead of after it,
+    and the first words are not lost.
+    """
+    return bool(args.audio_input_socket and args.audio_output_socket)
+
+
+def _mac_address(value: str) -> str:
+    """Parse aa:bb:cc:dd:ee:ff, AA-BB-CC-DD-EE-FF or aabbccddeeff into lower-case colon form."""
+    digits = value.strip().replace(":", "").replace("-", "").lower()
+    if len(digits) != 12 or any(char not in "0123456789abcdef" for char in digits):
+        raise argparse.ArgumentTypeError(f"invalid MAC address: {value!r}")
+    return ":".join(digits[i : i + 2] for i in range(0, 12, 2))
+
+
+def _start_engine_microphone(args: argparse.Namespace, loop: asyncio.AbstractEventLoop, engine_monitor: Dict[str, Any]):
+    """Connect the microphone to the audio engine, or exit when it does not answer."""
+    from .audio_source import HelperSource
+
+    if args.audio_input_device is not None:
+        _LOGGER.warning("--audio-input-device is ignored with --audio-input-socket")
+    if args.audio_input_channels != 1:
+        _LOGGER.warning("--audio-input-channels is ignored with --audio-input-socket, the audio engine sends one channel")
+    args.audio_input_channels = 1
+
+    def on_event(code: str, _event: Dict[str, Any]) -> None:
+        if code in ("will_sleep", "did_wake", "network_changed"):
+            asyncio.run_coroutine_threadsafe(_engine_power_event(code, source, engine_monitor.get("monitor")), loop)
+
+    source = HelperSource(args.audio_input_socket, on_event=on_event)
+    source.start()
+    if not source.wait_connected(10.0):
+        _LOGGER.error("No audio engine at %s: %s", args.audio_input_socket, source.last_error)
+        source.close()
+        sys.exit(1)
+    return source
+
+
+async def _engine_power_event(code: str, source, monitor: Optional[NetworkMonitor]) -> None:
+    """Handle sleep and wake reported by the audio engine; answer will_sleep with sleep_ready."""
+    try:
+        if monitor is not None:
+            if code == "will_sleep":
+                # The engine lets the system sleep 2 s after will_sleep at the latest
+                await asyncio.wait({asyncio.ensure_future(monitor.will_sleep())}, timeout=1.5)
+            elif code == "did_wake":
+                await monitor.did_wake()
+            else:
+                await monitor.network_changed()
+        elif code == "will_sleep":
+            _LOGGER.info("System going to sleep")
+    finally:
+        if code == "will_sleep":
+            source.send_event("sleep_ready")
+
+
+def _require_webrtc() -> None:
+    """Exit when mic auto gain or noise suppression is requested without webrtc-noise-gain."""
+    try:
+        import webrtc_noise_gain  # type: ignore[import-untyped] # noqa: F401
+    except ImportError:
+        if sys.platform == "darwin":
+            _LOGGER.error("--mic-auto-gain and --mic-noise-suppression are not available on this platform")
+        else:
+            _LOGGER.exception("Extras for webrtc are not installed")
+        sys.exit(1)
+
+
+def _input_channels(requested: int, mic) -> int:
+    """Return the number of channels to capture, at most what the microphone has."""
+    available = getattr(mic, "channels", None)
+    if isinstance(available, int) and 0 < available < requested:
+        _LOGGER.warning("%s has %d channel(s), capturing %d instead of %d", mic.name, available, available, requested)
+        return available
+    return requested
+
+
+def _device_blocksize(block_size: int) -> Optional[int]:
+    """Return the soundcard recorder buffer size for the frames read per block.
+
+    On CoreAudio, soundcard's blocksize is the device buffer in frames at the
+    device rate, capped at 512, not the number of 16 kHz frames read per block:
+    let the device choose it there and keep the explicit size elsewhere.
+    """
+    return None if sys.platform == "darwin" else block_size
+
+
+def process_audio(
+    state: ServerState,
+    mic,
+    block_size: int,
+    stop: Optional[threading.Event] = None,
+    on_error: Optional[Callable[[], None]] = None,
+    resumed: Optional[Callable[[], bool]] = None,
+):
+    """Process audio chunks from the microphone until stop is set.
+
+    A failure outside the per-block handler calls on_error, so the caller can
+    end the process instead of keeping a satellite that no longer hears.
+    When resumed() returns True (an audio engine resumed capture after a
+    pause), the streaming wake word features start over, so no window spans
+    the pause.
+    """
     n_channels = state.audio_input_channels
 
     wake_words: List[Union[MicroWakeWord, OpenWakeWord]] = []
@@ -654,13 +922,18 @@ def process_audio(state: ServerState, mic, block_size: int):
 
     last_active: Optional[float] = None
     webrtc: Optional[WebRTCProcessor] = None
+    webrtc_usable = True
 
     try:
         _LOGGER.debug("Opening audio input device: %s", mic.name)
-        with mic.recorder(samplerate=16000, channels=n_channels, blocksize=block_size) as mic_in:
-            while True:
+        with mic.recorder(samplerate=16000, channels=n_channels, blocksize=_device_blocksize(block_size)) as mic_in:
+            while (stop is None) or (not stop.is_set()):
                 # Shape: (block_size, n_channels) for stereo, (block_size, 1) for mono.
                 raw = mic_in.record(block_size)  # float32, range [-1, 1]
+                if resumed is not None and resumed() and micro_features is not None:
+                    micro_features = MicroWakeWordFeatures()
+                    if oww_features is not None:
+                        oww_features = OpenWakeWordFeatures.from_builtin()
                 mic_vol_scalar = max(0.1, min(1.0, state.mic_volume / 100.0))
 
                 # Build per-channel byte arrays.  Channel 0 is the primary
@@ -677,14 +950,19 @@ def process_audio(state: ServerState, mic, block_size: int):
                 agc = state.preferences.mic_auto_gain or 0
                 ns = state.preferences.mic_noise_suppression or 0
 
-                if agc > 0 or ns > 0:
-                    if webrtc is None:
-                        webrtc = WebRTCProcessor(agc_level=agc, ns_level=ns)
+                if (agc > 0 or ns > 0) and webrtc_usable and not state.input_processing:
+                    try:
+                        if webrtc is None:
+                            webrtc = WebRTCProcessor(agc_level=agc, ns_level=ns)
+                        else:
+                            webrtc.update_settings(agc, ns)
+                    except ImportError:
+                        _LOGGER.warning("webrtc-noise-gain is not installed, ignoring mic auto gain and noise suppression")
+                        webrtc_usable = False
                     else:
-                        webrtc.update_settings(agc, ns)
-                    audio_chunk = webrtc.process(audio_chunk)
-                    if not audio_chunk:
-                        continue
+                        audio_chunk = webrtc.process(audio_chunk)
+                        if not audio_chunk:
+                            continue
 
                 if state.satellite is None or not hasattr(state.satellite, "_is_streaming_audio"):
                     continue
@@ -839,21 +1117,25 @@ def process_audio(state: ServerState, mic, block_size: int):
                             state.stop_word.debug_probabilities = True
                             stopped = True
 
-                    if stopped and (state.stop_word.id in state.active_wake_words) and not state.muted:
+                    if stopped and (state.stop_word.id in state.active_wake_words) and not (state.muted and not state.mute_override):
                         _LOGGER.debug("Stop word detected")
                         state.satellite.stop()
                 except Exception:  # pylint: disable=broad-except
                     _LOGGER.exception("Unexpected error handling audio")
     except Exception:  # pylint: disable=broad-except
         _LOGGER.exception("Unexpected error processing audio")
-        sys.exit(1)
+        if on_error is None:
+            sys.exit(1)
+        on_error()
 
 
 # -----------------------------------------------------------------------------
 
 
 def run():
-    asyncio.run(main())
+    shutdown = asyncio.run(main())
+    if shutdown is not None:
+        shutdown.exit()
 
 
 if __name__ == "__main__":

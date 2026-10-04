@@ -1,5 +1,8 @@
 """Unit tests for __main__.py — process_audio logic and argument parsing helpers."""
 
+import argparse
+import logging
+
 import numpy as np
 import pytest
 
@@ -233,3 +236,49 @@ class TestPreferencesFromArgs:
         if enable_thinking_sound:
             prefs.thinking_sound = 1
         assert prefs.thinking_sound == 1
+
+
+# ---------------------------------------------------------------------------
+# Audio engine: timestamped log lines and streaming during the sounds
+# ---------------------------------------------------------------------------
+
+
+def _engine_args(**sockets):
+    values = {"audio_input_socket": None, "audio_output_socket": None, "control_socket": None}
+    values.update(sockets)
+    return argparse.Namespace(**values)
+
+
+class TestEngineLogFormat:
+    def test_no_engine_keeps_the_default_format(self):
+        from linux_voice_assistant.__main__ import _log_format
+
+        assert _log_format(_engine_args()) == (logging.BASIC_FORMAT, None)
+
+    def test_engine_lines_carry_the_time_to_the_millisecond(self):
+        from linux_voice_assistant.__main__ import _log_format
+
+        formatter = logging.Formatter(*_log_format(_engine_args(audio_input_socket="/s", audio_output_socket="/s", control_socket="/s")))
+        record = logging.LogRecord("lva", logging.INFO, __file__, 1, "Wake word", None, None)
+        record.created = 1759622400.0421
+        record.msecs = 42.1
+
+        line = formatter.format(record)
+        assert line.endswith(".042 INFO:lva:Wake word")
+        assert line[:4].isdigit() and line[10] == " "
+
+
+class TestEngineCancelsEcho:
+    def test_both_engine_sockets_listen_during_the_sounds(self):
+        from linux_voice_assistant.__main__ import _engine_cancels_echo
+
+        assert _engine_cancels_echo(_engine_args(audio_input_socket="/s", audio_output_socket="/s")) is True
+
+    @pytest.mark.parametrize(
+        "sockets",
+        [{}, {"audio_input_socket": "/s"}, {"audio_output_socket": "/s"}, {"control_socket": "/s"}],
+    )
+    def test_without_the_engine_playing_and_hearing_the_sounds_wait_for_them(self, sockets):
+        from linux_voice_assistant.__main__ import _engine_cancels_echo
+
+        assert _engine_cancels_echo(_engine_args(**sockets)) is False

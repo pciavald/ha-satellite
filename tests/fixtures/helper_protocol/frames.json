@@ -1,0 +1,562 @@
+{
+  "frames": [
+    {
+      "name": "hello_mic",
+      "type": "HELLO",
+      "from": "client",
+      "json": {
+        "proto": 1,
+        "role": "mic"
+      },
+      "hex": "01010000180000007b2270726f746f223a312c22726f6c65223a226d6963227d"
+    },
+    {
+      "name": "hello_mic_reply",
+      "type": "HELLO",
+      "from": "helper",
+      "json": {
+        "proto": 1,
+        "accepted": true,
+        "format": "s16le",
+        "rate": 16000,
+        "channels": 1,
+        "frame_samples": 160,
+        "processing": [
+          "aec",
+          "ns"
+        ],
+        "mic_authorized": true,
+        "vp": true,
+        "agc": false,
+        "capturing": true,
+        "helper_version": "0.1.0",
+        "device": "MacBook Pro Microphone",
+        "input_device": "MacBook Pro Microphone",
+        "output_device": "MacBook Pro Speakers",
+        "rate_in": 44100
+      },
+      "hex": "010100004b0100007b226163636570746564223a747275652c22616763223a66616c73652c22636170747572696e67223a747275652c226368616e6e656c73223a312c22646576696365223a224d6163426f6f6b2050726f204d6963726f70686f6e65222c22666f726d6174223a227331366c65222c226672616d655f73616d706c6573223a3136302c2268656c7065725f76657273696f6e223a22302e312e30222c22696e7075745f646576696365223a224d6163426f6f6b2050726f204d6963726f70686f6e65222c226d69635f617574686f72697a6564223a747275652c226f75747075745f646576696365223a224d6163426f6f6b2050726f20537065616b657273222c2270726f63657373696e67223a5b22616563222c226e73225d2c2270726f746f223a312c2272617465223a31363030302c22726174655f696e223a34343130302c227670223a747275657d"
+    },
+    {
+      "name": "hello_mic_reply_unauthorized",
+      "type": "HELLO",
+      "from": "helper",
+      "json": {
+        "proto": 1,
+        "accepted": true,
+        "format": "s16le",
+        "rate": 16000,
+        "channels": 1,
+        "frame_samples": 160,
+        "processing": [
+          "aec",
+          "ns",
+          "agc"
+        ],
+        "mic_authorized": false,
+        "vp": true,
+        "agc": true,
+        "capturing": false,
+        "helper_version": "0.1.0"
+      },
+      "hex": "01010000d10000007b226163636570746564223a747275652c22616763223a747275652c22636170747572696e67223a66616c73652c226368616e6e656c73223a312c22666f726d6174223a227331366c65222c226672616d655f73616d706c6573223a3136302c2268656c7065725f76657273696f6e223a22302e312e30222c226d69635f617574686f72697a6564223a66616c73652c2270726f63657373696e67223a5b22616563222c226e73222c22616763225d2c2270726f746f223a312c2272617465223a31363030302c227670223a747275657d"
+    },
+    {
+      "name": "hello_play_tts",
+      "type": "HELLO",
+      "from": "client",
+      "json": {
+        "proto": 1,
+        "role": "play:tts",
+        "format": "s16le",
+        "rate": 48000,
+        "channels": 1
+      },
+      "hex": "01010000480000007b226368616e6e656c73223a312c22666f726d6174223a227331366c65222c2270726f746f223a312c2272617465223a34383030302c22726f6c65223a22706c61793a747473227d"
+    },
+    {
+      "name": "hello_play_reply",
+      "type": "HELLO",
+      "from": "helper",
+      "json": {
+        "proto": 1,
+        "accepted": true,
+        "buffer_ms": 200
+      },
+      "hex": "010100002b0000007b226163636570746564223a747275652c226275666665725f6d73223a3230302c2270726f746f223a317d"
+    },
+    {
+      "name": "hello_control",
+      "type": "HELLO",
+      "from": "client",
+      "json": {
+        "proto": 1,
+        "role": "control",
+        "lva_version": "1.2.0"
+      },
+      "hex": "01010000320000007b226c76615f76657273696f6e223a22312e322e30222c2270726f746f223a312c22726f6c65223a22636f6e74726f6c227d"
+    },
+    {
+      "name": "hello_control_reply",
+      "type": "HELLO",
+      "from": "helper",
+      "json": {
+        "proto": 1,
+        "accepted": true,
+        "helper_version": "0.1.0"
+      },
+      "hex": "01010000340000007b226163636570746564223a747275652c2268656c7065725f76657273696f6e223a22302e312e30222c2270726f746f223a317d"
+    },
+    {
+      "name": "hello_refused_proto",
+      "type": "HELLO",
+      "from": "helper",
+      "json": {
+        "proto": 1,
+        "accepted": false,
+        "reason": "unsupported_proto"
+      },
+      "hex": "01010000390000007b226163636570746564223a66616c73652c2270726f746f223a312c22726561736f6e223a22756e737570706f727465645f70726f746f227d"
+    },
+    {
+      "name": "pcm_mic",
+      "type": "PCM",
+      "from": "helper",
+      "index": 1600,
+      "samples": [
+        -32768,
+        32767,
+        0,
+        -1,
+        -31128,
+        -30718,
+        -30308,
+        -29898,
+        -29488,
+        -29078,
+        -28668,
+        -28258,
+        -27848,
+        -27438,
+        -27028,
+        -26618,
+        -26208,
+        -25798,
+        -25388,
+        -24978,
+        -24568,
+        -24158,
+        -23748,
+        -23338,
+        -22928,
+        -22518,
+        -22108,
+        -21698,
+        -21288,
+        -20878,
+        -20468,
+        -20058,
+        -19648,
+        -19238,
+        -18828,
+        -18418,
+        -18008,
+        -17598,
+        -17188,
+        -16778,
+        -16368,
+        -15958,
+        -15548,
+        -15138,
+        -14728,
+        -14318,
+        -13908,
+        -13498,
+        -13088,
+        -12678,
+        -12268,
+        -11858,
+        -11448,
+        -11038,
+        -10628,
+        -10218,
+        -9808,
+        -9398,
+        -8988,
+        -8578,
+        -8168,
+        -7758,
+        -7348,
+        -6938,
+        -6528,
+        -6118,
+        -5708,
+        -5298,
+        -4888,
+        -4478,
+        -4068,
+        -3658,
+        -3248,
+        -2838,
+        -2428,
+        -2018,
+        -1608,
+        -1198,
+        -788,
+        -378,
+        32,
+        442,
+        852,
+        1262,
+        1672,
+        2082,
+        2492,
+        2902,
+        3312,
+        3722,
+        4132,
+        4542,
+        4952,
+        5362,
+        5772,
+        6182,
+        6592,
+        7002,
+        7412,
+        7822,
+        8232,
+        8642,
+        9052,
+        9462,
+        9872,
+        10282,
+        10692,
+        11102,
+        11512,
+        11922,
+        12332,
+        12742,
+        13152,
+        13562,
+        13972,
+        14382,
+        14792,
+        15202,
+        15612,
+        16022,
+        16432,
+        16842,
+        17252,
+        17662,
+        18072,
+        18482,
+        18892,
+        19302,
+        19712,
+        20122,
+        20532,
+        20942,
+        21352,
+        21762,
+        22172,
+        22582,
+        22992,
+        23402,
+        23812,
+        24222,
+        24632,
+        25042,
+        25452,
+        25862,
+        26272,
+        26682,
+        27092,
+        27502,
+        27912,
+        28322,
+        28732,
+        29142,
+        29552,
+        29962,
+        30372,
+        30782,
+        31192,
+        31602,
+        32012,
+        32422
+      ],
+      "hex": "020100004801000040060000000000000080ff7f0000ffff688602889c89368bd08c6a8e04909e913893d2946c960698a0993a9bd49c6e9e08a0a2a13ca3d6a470a60aa8a4a93eabd8ac72ae0cb0a6b140b3dab474b60eb8a8b942bbdcbc76be10c0aac144c3dec478c612c8acc946cbe0cc7ace14d0aed148d3e2d47cd616d8b0d94adbe4dc7ede18e0b2e14ce3e6e480e61ae8b4e94eebe8ec82ee1cf0b6f150f3eaf484f61ef8b8f952fbecfc86fe2000ba015403ee0488062208bc09560bf00c8a0e2410be115813f2148c162618c0195a1bf41c8e1e2820c2215c23f62490262a28c4295e2bf82c922e2c30c6316033fa3494362e38c839623bfc3c963e3040ca416443fe4498463248cc49664b004d9a4e3450ce51685302559c563658d0596a5b045d9e5e3860d2616c630665a0663a68d4696e6b086da26e3c70d67170730a75a4763e78d879727b0c7da67e"
+    },
+    {
+      "name": "pcm_play_s16le",
+      "type": "PCM",
+      "from": "client",
+      "payload_hex": "0000e80318fcff7f00800100",
+      "hex": "020100000c0000000000e80318fcff7f00800100"
+    },
+    {
+      "name": "end",
+      "type": "END",
+      "from": "client",
+      "hex": "0301000000000000"
+    },
+    {
+      "name": "flush",
+      "type": "FLUSH",
+      "from": "client",
+      "hex": "0501000000000000"
+    },
+    {
+      "name": "drained",
+      "type": "DRAINED",
+      "from": "helper",
+      "hex": "0401000000000000"
+    },
+    {
+      "name": "event_overrun",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "overrun",
+        "dropped": 480
+      },
+      "hex": "06010000200000007b22636f6465223a226f76657272756e222c2264726f70706564223a3438307d"
+    },
+    {
+      "name": "event_capture_paused",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "capture_paused"
+      },
+      "hex": "06010000190000007b22636f6465223a22636170747572655f706175736564227d"
+    },
+    {
+      "name": "event_capture_resumed",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "capture_resumed"
+      },
+      "hex": "060100001a0000007b22636f6465223a22636170747572655f726573756d6564227d"
+    },
+    {
+      "name": "event_permission_denied",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "permission_denied",
+        "msg": "microphone access not granted to HA Satellite"
+      },
+      "hex": "06010000520000007b22636f6465223a227065726d697373696f6e5f64656e696564222c226d7367223a226d6963726f70686f6e6520616363657373206e6f74206772616e74656420746f20484120536174656c6c697465227d"
+    },
+    {
+      "name": "event_no_input_device",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "no_input_device"
+      },
+      "hex": "060100001a0000007b22636f6465223a226e6f5f696e7075745f646576696365227d"
+    },
+    {
+      "name": "event_device_changed",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "device_changed",
+        "device": "MacBook Pro Microphone"
+      },
+      "hex": "060100003b0000007b22636f6465223a226465766963655f6368616e676564222c22646576696365223a224d6163426f6f6b2050726f204d6963726f70686f6e65227d"
+    },
+    {
+      "name": "event_engine_restarted",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "engine_restarted",
+        "reason": "configuration change"
+      },
+      "hex": "060100003b0000007b22636f6465223a22656e67696e655f726573746172746564222c22726561736f6e223a22636f6e66696775726174696f6e206368616e6765227d"
+    },
+    {
+      "name": "event_interrupted",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "interrupted",
+        "msg": "playback cut by an audio engine change"
+      },
+      "hex": "06010000450000007b22636f6465223a22696e746572727570746564222c226d7367223a22706c61796261636b2063757420627920616e20617564696f20656e67696e65206368616e6765227d"
+    },
+    {
+      "name": "event_will_sleep",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "will_sleep"
+      },
+      "hex": "06010000150000007b22636f6465223a2277696c6c5f736c656570227d"
+    },
+    {
+      "name": "event_did_wake",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "did_wake"
+      },
+      "hex": "06010000130000007b22636f6465223a226469645f77616b65227d"
+    },
+    {
+      "name": "event_network_changed",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "network_changed"
+      },
+      "hex": "060100001a0000007b22636f6465223a226e6574776f726b5f6368616e676564227d"
+    },
+    {
+      "name": "event_sleep_ready",
+      "type": "EVENT",
+      "from": "client",
+      "json": {
+        "code": "sleep_ready"
+      },
+      "hex": "06010000160000007b22636f6465223a22736c6565705f7265616479227d"
+    },
+    {
+      "name": "event_protocol_error",
+      "type": "EVENT",
+      "from": "helper",
+      "json": {
+        "code": "protocol_error",
+        "error": "unknown_type",
+        "msg": "unknown frame type 9"
+      },
+      "hex": "060100004d0000007b22636f6465223a2270726f746f636f6c5f6572726f72222c226572726f72223a22756e6b6e6f776e5f74797065222c226d7367223a22756e6b6e6f776e206672616d6520747970652039227d"
+    },
+    {
+      "name": "control_mute_mic",
+      "type": "CONTROL",
+      "from": "helper",
+      "json": {
+        "command": "mute_mic",
+        "id": 7
+      },
+      "hex": "070100001d0000007b22636f6d6d616e64223a226d7574655f6d6963222c226964223a377d"
+    },
+    {
+      "name": "control_unmute_mic",
+      "type": "CONTROL",
+      "from": "helper",
+      "json": {
+        "command": "unmute_mic",
+        "id": 8
+      },
+      "hex": "070100001f0000007b22636f6d6d616e64223a22756e6d7574655f6d6963222c226964223a387d"
+    },
+    {
+      "name": "control_start_listening",
+      "type": "CONTROL",
+      "from": "helper",
+      "json": {
+        "command": "start_listening",
+        "id": 9,
+        "data": {
+          "allow_muted": true
+        }
+      },
+      "hex": "07010000400000007b22636f6d6d616e64223a2273746172745f6c697374656e696e67222c2264617461223a7b22616c6c6f775f6d75746564223a747275657d2c226964223a397d"
+    },
+    {
+      "name": "control_stop_pipeline",
+      "type": "CONTROL",
+      "from": "helper",
+      "json": {
+        "command": "stop_pipeline",
+        "id": 10
+      },
+      "hex": "07010000230000007b22636f6d6d616e64223a2273746f705f706970656c696e65222c226964223a31307d"
+    },
+    {
+      "name": "control_ack_ok",
+      "type": "CONTROL",
+      "from": "client",
+      "json": {
+        "ack": 7,
+        "ok": true
+      },
+      "hex": "07010000130000007b2261636b223a372c226f6b223a747275657d"
+    },
+    {
+      "name": "control_ack_refused",
+      "type": "CONTROL",
+      "from": "client",
+      "json": {
+        "ack": 9,
+        "ok": false,
+        "reason": "pipeline_active"
+      },
+      "hex": "070100002f0000007b2261636b223a392c226f6b223a66616c73652c22726561736f6e223a22706970656c696e655f616374697665227d"
+    },
+    {
+      "name": "control_state",
+      "type": "CONTROL",
+      "from": "client",
+      "json": {
+        "state": {
+          "rev": 42,
+          "ha_connected": true,
+          "muted": false,
+          "ptt": false,
+          "phase": "idle",
+          "media": "idle",
+          "error": null
+        }
+      },
+      "hex": "070100006d0000007b227374617465223a7b226572726f72223a6e756c6c2c2268615f636f6e6e6563746564223a747275652c226d65646961223a2269646c65222c226d75746564223a66616c73652c227068617365223a2269646c65222c22707474223a66616c73652c22726576223a34327d7d"
+    },
+    {
+      "name": "control_state_error",
+      "type": "CONTROL",
+      "from": "client",
+      "json": {
+        "state": {
+          "rev": 43,
+          "ha_connected": true,
+          "muted": true,
+          "ptt": true,
+          "phase": "listening",
+          "media": "paused",
+          "error": {
+            "reason": "stt-no-text-recognized",
+            "rev": 41
+          }
+        }
+      },
+      "hex": "070100009a0000007b227374617465223a7b226572726f72223a7b22726561736f6e223a227374742d6e6f2d746578742d7265636f676e697a6564222c22726576223a34317d2c2268615f636f6e6e6563746564223a747275652c226d65646961223a22706175736564222c226d75746564223a747275652c227068617365223a226c697374656e696e67222c22707474223a747275652c22726576223a34337d7d"
+    },
+    {
+      "name": "control_client_command",
+      "type": "CONTROL",
+      "from": "client",
+      "json": {
+        "command": "self_destruct",
+        "id": 4
+      },
+      "hex": "07010000220000007b22636f6d6d616e64223a2273656c665f6465737472756374222c226964223a347d"
+    },
+    {
+      "name": "control_unknown_ack",
+      "type": "CONTROL",
+      "from": "helper",
+      "json": {
+        "ack": 4,
+        "ok": false,
+        "reason": "unknown_command"
+      },
+      "hex": "070100002f0000007b2261636b223a342c226f6b223a66616c73652c22726561736f6e223a22756e6b6e6f776e5f636f6d6d616e64227d"
+    }
+  ]
+}

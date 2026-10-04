@@ -666,17 +666,8 @@ class PeripheralAPIServer:
 
     async def _push_mute_switch(self, satellite: Any, *, muted: bool) -> None:
         """Reflect a peripheral-triggered mute change to Home Assistant."""
-        state = self._state
-        if state is None or state.mute_switch_entity is None:
-            return
-
-        entity = state.mute_switch_entity
-        entity._switch_state = muted  # pylint: disable=protected-access
-
-        # pylint: disable=no-name-in-module
-        from aioesphomeapi.api_pb2 import SwitchStateResponse  # type: ignore[attr-defined]
-
-        satellite.send_messages([SwitchStateResponse(key=entity.key, state=muted)])
+        if self._state is not None:
+            push_mute_switch(self._state, satellite, muted)
 
     # ------------------------------------------------------------------
     # Event emission
@@ -775,3 +766,17 @@ class PeripheralAPIServer:
             volume=media_entity.volume,
             muted=media_entity.muted,
         )
+
+
+def push_mute_switch(state: "ServerState", satellite: Any, muted: bool) -> None:
+    """Reflect a mute change made outside Home Assistant to its mute switch."""
+    if state.mute_switch_entity is None:
+        return
+
+    entity = state.mute_switch_entity
+    entity._switch_state = muted  # pylint: disable=protected-access
+
+    # pylint: disable=no-name-in-module
+    from aioesphomeapi.api_pb2 import SwitchStateResponse  # type: ignore[attr-defined]
+
+    satellite.send_messages([SwitchStateResponse(key=entity.key, state=muted)])

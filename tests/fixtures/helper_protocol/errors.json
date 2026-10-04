@@ -1,0 +1,34 @@
+{
+  "errors": [
+    {
+      "name": "bad_version",
+      "hex": "0302000000000000",
+      "error": "bad_version"
+    },
+    {
+      "name": "unknown_type",
+      "hex": "0901000000000000",
+      "error": "unknown_type"
+    },
+    {
+      "name": "type_zero",
+      "hex": "0001000000000000",
+      "error": "unknown_type"
+    },
+    {
+      "name": "oversize",
+      "hex": "0201000001000100",
+      "error": "oversize"
+    },
+    {
+      "name": "truncated_header",
+      "hex": "010100",
+      "error": "truncated"
+    },
+    {
+      "name": "truncated_payload",
+      "hex": "01010000050000007b7d",
+      "error": "truncated"
+    }
+  ]
+}

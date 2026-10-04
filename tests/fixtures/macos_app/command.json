@@ -1,0 +1,32 @@
+{
+  "_comment": "The command the macOS app builds without satellite.json for these inputs (ConfigTests in macos/HASatellite); tests/unit/test_engine_wiring.py parses its arguments with LVA's own parser.",
+  "contents": "/Applications/HA Satellite.app/Contents",
+  "support": "/Users/me/Library/Application Support/ha-satellite",
+  "computer_name": "Mac bureau",
+  "interfaces": [
+    {"bsd_name": "en5", "kind": "ethernet", "mac": "11:22:33:44:55:66"},
+    {"bsd_name": "en0", "kind": "wifi", "mac": "AA:BB:CC:DD:EE:FF"}
+  ],
+  "python": "/Applications/HA Satellite.app/Contents/Resources/python/bin/python3",
+  "cwd": "/Users/me/Library/Application Support/ha-satellite",
+  "args": [
+    "-I", "-B", "-u",
+    "-m", "linux_voice_assistant",
+    "--name", "Mac bureau",
+    "--host", "0.0.0.0",
+    "--mac-address", "aa:bb:cc:dd:ee:ff",
+    "--follow-network",
+    "--audio-input-socket", "/Users/me/Library/Application Support/ha-satellite/audio.sock",
+    "--audio-output-socket", "/Users/me/Library/Application Support/ha-satellite/audio.sock",
+    "--control-socket", "/Users/me/Library/Application Support/ha-satellite/audio.sock",
+    "--persist-mute",
+    "--disable-peripheral-api",
+    "--preferences-file", "/Users/me/Library/Application Support/ha-satellite/preferences.json",
+    "--download-dir", "/Users/me/Library/Application Support/ha-satellite/downloads"
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "LVA_LIBMPV_DIR": "/Applications/HA Satellite.app/Contents/Frameworks"
+  }
+}

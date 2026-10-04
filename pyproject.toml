@@ -23,7 +23,8 @@ classifiers = [
 requires-python = ">=3.11.0"
 dependencies = [
     "aioesphomeapi==45.3.1",
-    "netifaces2==0.0.22",
+    "netifaces2==0.0.22; sys_platform == 'linux'",
+    "ifaddr>=0.2,<1",
     "soundcard<1",
     "numpy>=2,<3",
     "pymicro-wakeword>=2,<3",
@@ -33,7 +34,9 @@ dependencies = [
     "getmac<1",
     "types-protobuf",
     "websockets==12",
-    "webrtc-noise-gain>=1,<2",
+    "webrtc-noise-gain>=1,<2; sys_platform == 'linux'",
+    # Decodes TTS for --audio-output-socket, only used with the macOS app
+    "av>=14,<20; sys_platform == 'darwin'",
 ]
 dynamic = ["version"]
 

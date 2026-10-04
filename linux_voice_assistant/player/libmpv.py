@@ -1,11 +1,45 @@
 import logging
+import os
+import sys
 import threading
-from typing import Callable, Optional
-
-import mpv
+from types import ModuleType
+from typing import Callable, Optional, cast
 
 from linux_voice_assistant.player.base import AudioPlayer
 from linux_voice_assistant.player.state import PlayerState
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def import_mpv() -> ModuleType:
+    """
+    Import python-mpv, which loads libmpv.
+
+    The import is deferred until a player is built, so the rest of the
+    application and its tests do not need libmpv. On macOS, a directory given
+    in LVA_LIBMPV_DIR is added to DYLD_FALLBACK_LIBRARY_PATH first:
+    ctypes.util.find_library reads it at call time, whereas DYLD_* variables
+    set outside the process are dropped by any SIP-protected launcher.
+    """
+    lib_dir = os.environ.get("LVA_LIBMPV_DIR")
+    if lib_dir:
+        if sys.platform == "darwin":
+            paths = [path for path in os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "").split(os.pathsep) if path]
+            if lib_dir not in paths:
+                os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = os.pathsep.join([lib_dir, *paths])
+        else:
+            _LOGGER.warning("LVA_LIBMPV_DIR is only used on macOS, ignoring it")
+
+    import mpv
+
+    return cast(ModuleType, mpv)
+
+
+def __getattr__(name: str):
+    # Keeps "linux_voice_assistant.player.libmpv.mpv" resolvable (e.g. for mock.patch)
+    if name == "mpv":
+        return import_mpv()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class LibMpvPlayer(AudioPlayer):
@@ -28,6 +62,7 @@ class LibMpvPlayer(AudioPlayer):
         self._duck_factor: float = 1.0  # 0.0 – 1.0
 
         # mpv setup
+        mpv = import_mpv()
         self._mpv = mpv.MPV(
             audio_display=False,
             log_handler=self._on_mpv_log,
@@ -53,7 +88,8 @@ class LibMpvPlayer(AudioPlayer):
         # silence when idle.  This eliminates the per-play sink re-initialisation
         # penalty entirely, so back-to-back short sounds (wakeup → TTS, mute →
         # unmute) never lose their first samples regardless of system load.
-        self._mpv["audio-stream-silence"] = True
+        # Not on macOS: an open CoreAudio output keeps the Mac from idle sleep.
+        self._mpv["audio-stream-silence"] = sys.platform != "darwin"
 
         # Callback Handling
         self._done_callback: Optional[Callable[[], None]] = None

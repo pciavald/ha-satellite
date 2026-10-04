@@ -49,6 +49,7 @@ from google.protobuf import message
 from pymicro_wakeword import MicroWakeWord
 from pyopen_wakeword import OpenWakeWord
 
+from . import webrtc
 from .api_server import APIServer
 from .entity import (
     ButtonEventSensorEntity,
@@ -251,57 +252,60 @@ class VoiceSatelliteProtocol(APIServer):
 
         stop_sensitivity_entity.sync_with_state()
 
-        # Mic Gain
-        if self.state.mic_gain_entity is None:
-            self.state.mic_gain_entity = MicSettingEntity(
-                server=self,
-                key=len(self.state.entities),
-                name="Mic Auto Gain",
-                object_id="mic_gain",
-                min_value=0.0,
-                max_value=31.0,
-                get_value=lambda: float(self.state.mic_auto_gain),
-                set_value=lambda val: self.state.persist_mic_gain(float(val)),
-                icon="mdi:microphone-plus",
-            )
-            self.state.entities.append(self.state.mic_gain_entity)
-        elif self.state.mic_gain_entity not in self.state.entities:
-            self.state.entities.append(self.state.mic_gain_entity)
+        # Mic Auto Gain and Noise Suppression need webrtc-noise-gain (Linux only),
+        # and are left out when the input source already processes the audio
+        if webrtc.AVAILABLE and not self.state.input_processing:
+            # Mic Gain
+            if self.state.mic_gain_entity is None:
+                self.state.mic_gain_entity = MicSettingEntity(
+                    server=self,
+                    key=len(self.state.entities),
+                    name="Mic Auto Gain",
+                    object_id="mic_gain",
+                    min_value=0.0,
+                    max_value=31.0,
+                    get_value=lambda: float(self.state.mic_auto_gain),
+                    set_value=lambda val: self.state.persist_mic_gain(float(val)),
+                    icon="mdi:microphone-plus",
+                )
+                self.state.entities.append(self.state.mic_gain_entity)
+            elif self.state.mic_gain_entity not in self.state.entities:
+                self.state.entities.append(self.state.mic_gain_entity)
 
-        self.state.mic_gain_entity.server = self
-        self.state.mic_gain_entity.update_get_value(lambda: float(self.state.mic_auto_gain))
-        self.state.mic_gain_entity.update_set_value(lambda val: self.state.persist_mic_gain(float(val)))  # type: ignore[arg-type]
-        self.state.mic_gain_entity.sync_with_state()
+            self.state.mic_gain_entity.server = self
+            self.state.mic_gain_entity.update_get_value(lambda: float(self.state.mic_auto_gain))
+            self.state.mic_gain_entity.update_set_value(lambda val: self.state.persist_mic_gain(float(val)))  # type: ignore[arg-type]
+            self.state.mic_gain_entity.sync_with_state()
 
-        # Mic Noise Suppression
-        _NOISE_OPTIONS = ["Off", "Low", "Medium", "High", "Max"]
-        _NOISE_TO_INT = {label: i for i, label in enumerate(_NOISE_OPTIONS)}
+            # Mic Noise Suppression
+            _NOISE_OPTIONS = ["Off", "Low", "Medium", "High", "Max"]
+            _NOISE_TO_INT = {label: i for i, label in enumerate(_NOISE_OPTIONS)}
 
-        def _get_noise_label() -> str:
-            return _NOISE_OPTIONS[max(0, min(4, self.state.mic_noise_suppression))]
+            def _get_noise_label() -> str:
+                return _NOISE_OPTIONS[max(0, min(4, self.state.mic_noise_suppression))]
 
-        def _set_noise_label(label: Union[float, str]) -> None:
-            self.state.persist_mic_noise(float(_NOISE_TO_INT.get(str(label), 0)))
+            def _set_noise_label(label: Union[float, str]) -> None:
+                self.state.persist_mic_noise(float(_NOISE_TO_INT.get(str(label), 0)))
 
-        if self.state.mic_noise_suppression_entity is None:
-            self.state.mic_noise_suppression_entity = MicSettingEntity(
-                server=self,
-                key=len(self.state.entities),
-                name="Mic Noise Suppression",
-                object_id="mic_noise",
-                options=_NOISE_OPTIONS,
-                get_value=_get_noise_label,
-                set_value=_set_noise_label,
-                icon="mdi:waveform",
-            )
-            self.state.entities.append(self.state.mic_noise_suppression_entity)
-        elif self.state.mic_noise_suppression_entity not in self.state.entities:
-            self.state.entities.append(self.state.mic_noise_suppression_entity)
+            if self.state.mic_noise_suppression_entity is None:
+                self.state.mic_noise_suppression_entity = MicSettingEntity(
+                    server=self,
+                    key=len(self.state.entities),
+                    name="Mic Noise Suppression",
+                    object_id="mic_noise",
+                    options=_NOISE_OPTIONS,
+                    get_value=_get_noise_label,
+                    set_value=_set_noise_label,
+                    icon="mdi:waveform",
+                )
+                self.state.entities.append(self.state.mic_noise_suppression_entity)
+            elif self.state.mic_noise_suppression_entity not in self.state.entities:
+                self.state.entities.append(self.state.mic_noise_suppression_entity)
 
-        self.state.mic_noise_suppression_entity.server = self
-        self.state.mic_noise_suppression_entity.update_get_value(_get_noise_label)
-        self.state.mic_noise_suppression_entity.update_set_value(_set_noise_label)
-        self.state.mic_noise_suppression_entity.sync_with_state()
+            self.state.mic_noise_suppression_entity.server = self
+            self.state.mic_noise_suppression_entity.update_get_value(_get_noise_label)
+            self.state.mic_noise_suppression_entity.update_set_value(_set_noise_label)
+            self.state.mic_noise_suppression_entity.sync_with_state()
 
         # Mic Volume
         if self.state.mic_volume_entity is None:
@@ -371,6 +375,9 @@ class VoiceSatelliteProtocol(APIServer):
         api = self.state.peripheral_api
         if api is not None:
             api.emit_event_sync(event, data)
+        control = self.state.control_channel
+        if control is not None:
+            control.on_event(event, data)
 
     def register_pending_lights(self) -> None:
         """Materialise LightEntities for peripheral registered lights.
@@ -543,6 +550,10 @@ class VoiceSatelliteProtocol(APIServer):
 
     def _set_muted(self, new_state: bool) -> None:
         self.state.muted = bool(new_state)
+        self.state.mute_override = False
+        if self.state.persist_mute:
+            self.state.preferences.muted = self.state.muted
+            self.state.save_preferences()
         self._emit(LVAEvent.MUTED, {"muted": self.state.muted})
 
         if self.state.muted:
@@ -616,6 +627,7 @@ class VoiceSatelliteProtocol(APIServer):
 
         elif event_type == VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END:
             self._is_streaming_audio = False
+            self.state.mute_override = False
             if not self._tts_played:
                 self._pipeline_active = False
                 self._tts_finished()
@@ -626,6 +638,9 @@ class VoiceSatelliteProtocol(APIServer):
             self._tts_played = False
 
         elif event_type == VoiceAssistantEventType.VOICE_ASSISTANT_ERROR:
+            self.state.mute_override = False
+            if self.state.control_channel is not None:
+                self.state.control_channel.pipeline_error(data.get("code") or "unknown")
             self._emit(LVAEvent.PIPELINE_ERROR)
 
     # ------------------------------------------------------------------
@@ -867,7 +882,7 @@ class VoiceSatelliteProtocol(APIServer):
 
     # handle_audio — both channels in ONE message
     def handle_audio(self, audio_chunk: bytes, audio_chunk_2: Optional[bytes] = None) -> None:
-        if not self._is_streaming_audio or self.state.muted:
+        if not self._is_streaming_audio or (self.state.muted and not self.state.mute_override):
             return
         if _HAS_AUDIO_DATA2 and audio_chunk_2 is not None:
             self.send_messages([VoiceAssistantAudio(data=audio_chunk, data2=audio_chunk_2)])
@@ -927,7 +942,7 @@ class VoiceSatelliteProtocol(APIServer):
         self._is_streaming_audio = True
         self._emit(LVAEvent.LISTENING)
 
-    def start_listening(self) -> None:
+    def start_listening(self, allow_muted: bool = False) -> bool:
         """
         Manually start the voice pipeline from a button press.
 
@@ -935,13 +950,19 @@ class VoiceSatelliteProtocol(APIServer):
         ``VoiceAssistantRequest`` and begins streaming audio — identical flow
         to ``wakeup()`` but without a wake-word phrase and using the dedicated
         button-press sound instead of the wake-word chime. Also stops ringing timer.
+
+        ``allow_muted`` (push-to-talk from the control role only) streams this
+        one request while muted; the wake word stays off. Returns whether the
+        pipeline was started.
         """
-        if self.state.muted:
-            return
+        if self.state.muted and not allow_muted:
+            return False
 
         if self._pipeline_active:
             _LOGGER.debug("Ignoring start_listening - pipeline already active")
-            return
+            return False
+
+        self.state.mute_override = self.state.muted
 
         _LOGGER.debug("Button start_listening triggered")
         self._timer_finished = False
@@ -949,10 +970,15 @@ class VoiceSatelliteProtocol(APIServer):
         _LOGGER.debug("Stopping timer finished sound")
         self._pipeline_active = True
         self.duck()
-        self.state.tts_player.play(
-            self.state.start_listening_sound,
-            done_callback=self._on_start_listening_sound_finished,
-        )
+        if self.state.listen_during_start_sound:
+            self.state.tts_player.play(self.state.start_listening_sound)
+            self._on_start_listening_sound_finished()
+        else:
+            self.state.tts_player.play(
+                self.state.start_listening_sound,
+                done_callback=self._on_start_listening_sound_finished,
+            )
+        return True
 
     def _on_start_listening_sound_finished(self) -> None:
         """Callback invoked when the start-listening chime finishes; begin STT streaming."""
@@ -964,6 +990,7 @@ class VoiceSatelliteProtocol(APIServer):
     def stop(self) -> None:
         self.state.active_wake_words.discard(self.state.stop_word.id)
         self._pipeline_active = False
+        self.state.mute_override = False
 
         if self._timer_finished:
             self._timer_finished = False
@@ -995,6 +1022,7 @@ class VoiceSatelliteProtocol(APIServer):
 
     def _tts_finished(self) -> None:
         self._pipeline_active = False
+        self.state.mute_override = False
         self.state.active_wake_words.discard(self.state.stop_word.id)
         self.send_messages([VoiceAssistantAnnounceFinished()])
         self._emit(LVAEvent.TTS_FINISHED)
@@ -1092,6 +1120,7 @@ class VoiceSatelliteProtocol(APIServer):
         self._continue_conversation = False
         self._timer_finished = False
         self._pipeline_active = False
+        self.state.mute_override = False
 
         # Deregister this connection.
         if self in self.state.connections:

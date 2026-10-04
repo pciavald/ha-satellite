@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from queue import Queue
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 if TYPE_CHECKING:
     from google.protobuf import message
@@ -95,6 +95,9 @@ class Preferences:
     mic_noise_suppression: int = 0
     mic_volume: int = 100  # 1–100, default maximum
 
+    # Only stored with --persist-mute; left out of the file otherwise
+    muted: Optional[bool] = None
+
 
 @dataclass
 class ServerState:
@@ -159,6 +162,14 @@ class ServerState:
     # Assigned in __main__ before the event loop starts.
     peripheral_api: "Optional[Any]" = None  # PeripheralAPIServer at runtime
 
+    # Control role of an external audio engine (--control-socket), None otherwise
+    control_channel: "Optional[Any]" = None  # ControlChannel at runtime
+    # One-shot push-to-talk while muted, only set through the control role
+    mute_override: bool = False
+    # Processing the input source already applies (e.g. ("aec", "ns")); empty for soundcard
+    input_processing: Tuple[str, ...] = ()
+    persist_mute: bool = False
+
     sensitivity_1_number_entity: "Optional[WakeWord1SensitivityNumberEntity]" = None
     sensitivity_2_number_entity: "Optional[WakeWord2SensitivityNumberEntity]" = None
     stop_sensitivity_number_entity: "Optional[StopWordSensitivityNumberEntity]" = None
@@ -182,9 +193,10 @@ class ServerState:
     mic_auto_gain: int = 0
     mic_noise_suppression: int = 0
     mic_volume: int = 100  # 1–100, default maximum
-    audio_input_channels: int = 2  # number of mic channels to stream
+    audio_input_channels: int = 1  # number of mic channels to stream
     timer_max_ring_seconds: float = 900.0
     listen_during_wake_sound: bool = False
+    listen_during_start_sound: bool = False  # same for the start-listening (button) sound
 
     def broadcast(self, msgs: "Iterable[message.Message]") -> None:
         """Send messages to every connected API client.
@@ -205,9 +217,12 @@ class ServerState:
         """Save preferences as JSON."""
         _LOGGER.debug("Saving preferences: %s", self.preferences_path)
         self.preferences_path.parent.mkdir(parents=True, exist_ok=True)
+        preferences = asdict(self.preferences)
+        if preferences["muted"] is None:
+            del preferences["muted"]
         with open(self.preferences_path, "w", encoding="utf-8") as preferences_file:
             json.dump(
-                asdict(self.preferences),
+                preferences,
                 preferences_file,
                 ensure_ascii=False,
                 indent=4,
