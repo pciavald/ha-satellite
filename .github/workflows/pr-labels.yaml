@@ -1,17 +1,20 @@
 name: PR Labels
 
+# Disabled on the fork, where it fails; restore the trigger below.
 on:
-  pull_request_target:
-    types:
-      - opened
-      - edited
-      - synchronize
-      - labeled
-      - unlabeled
-      - reopened
-      - ready_for_review
-    branches:
-      - main
+  workflow_dispatch:
+# on:
+#   pull_request_target:
+#     types:
+#       - opened
+#       - edited
+#       - synchronize
+#       - labeled
+#       - unlabeled
+#       - reopened
+#       - ready_for_review
+#     branches:
+#       - main
 
 permissions:
   pull-requests: write

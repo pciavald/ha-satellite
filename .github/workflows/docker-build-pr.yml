@@ -1,9 +1,12 @@
 ---
 name: Build PR
 
+# Disabled on the fork until it publishes its own images; restore the trigger below.
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+# on:
+#   pull_request_target:
+#     types: [opened, synchronize, reopened]
 
 env:
   REGISTRY: ghcr.io
