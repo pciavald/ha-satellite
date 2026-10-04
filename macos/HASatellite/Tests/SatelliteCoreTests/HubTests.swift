@@ -251,7 +251,9 @@ final class HubTests: XCTestCase {
     XCTAssertTrue(engine.started)
     engine.feed(seconds: 0.1)
     wait("forwarding") { hub.state.audio.capturing }
-    engine.feed(seconds: 1)
+    // 0.9 s in all fits the 16384-sample ring even if nothing was read yet:
+    // more overruns on a slow runner and the backlog is dropped.
+    engine.feed(seconds: 0.8)
     let samples = try readPCM(mic, samples: 12000, from: 0)
     XCTAssertGreaterThan(samples.map { abs(Int($0)) }.max()!, 8000, "the tone, not silence")
   }
