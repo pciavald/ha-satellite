@@ -70,8 +70,9 @@ jobs:
           if-no-files-found: warn
 
   # The macOS port in one job: the menu bar app (Swift unit tests, including
-  # the protocol fixtures shared with Python, and an unsigned bundle) and the
-  # Python suite installed from the pins the app's venv uses.
+  # the fixtures shared with Python), the Python suite installed from the pins
+  # the app bundles, and the self-contained app, ad hoc signed (no secret in
+  # CI), checked and uploaded as HA-Satellite-macos-arm64.zip.
   macos:
     name: macOS (app and Python 3.13)
     runs-on: macos-latest
@@ -95,7 +96,7 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # CI only: libmpv comes from Homebrew on the runner.
+      # libmpv from Homebrew: for the Python tests, and copied into the app.
       - name: Install libmpv
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -117,8 +118,26 @@ jobs:
       - name: Run Swift tests
         run: swift test --package-path macos/HASatellite 2>&1 | tee swift-test.log || { grep -E "error:|failed|Fatal|crashed" swift-test.log | head -n 40 | python .github/annotate.py "swift test"; exit 1; }
 
-      - name: Assemble the app bundle (not signed)
-        run: macos/build.sh build --no-sign
+      - name: Build the self-contained app (ad hoc signed)
+        env:
+          LVA_SIGN_IDENTITY: "-"
+        run: macos/build.sh build 2>&1 | tee app-build.log || { tail -n 40 app-build.log | python .github/annotate.py "app build"; exit 1; }
+
+      # Nothing loaded from outside the bundle; the bundled interpreter loads
+      # LVA, its native dependencies, libmpv and the wake word models.
+      - name: Check the app bundle
+        run: macos/build.sh check
+
+      - name: Zip the app
+        run: ditto -c -k --keepParent "macos/HASatellite/.build/HA Satellite.app" HA-Satellite-macos-arm64.zip
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          path: HA-Satellite-macos-arm64.zip
+          archive: false
+          retention-days: 30
+          if-no-files-found: error
 
       # DYLD_* variables are stripped when a SIP-protected binary such as bash
       # starts, so the library path is exported inside the step itself.
