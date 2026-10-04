@@ -1,0 +1,134 @@
+{
+  "hello": [
+    {
+      "name": "mic",
+      "json": {
+        "proto": 1,
+        "role": "mic"
+      },
+      "role": "mic"
+    },
+    {
+      "name": "play_tts",
+      "json": {
+        "proto": 1,
+        "role": "play:tts",
+        "format": "s16le",
+        "rate": 48000,
+        "channels": 1
+      },
+      "role": "play:tts",
+      "format": {
+        "format": "s16le",
+        "rate": 48000,
+        "channels": 1
+      }
+    },
+    {
+      "name": "play_f32_stereo",
+      "json": {
+        "proto": 1,
+        "role": "play:music",
+        "format": "f32le",
+        "rate": 44100,
+        "channels": 2
+      },
+      "role": "play:music",
+      "format": {
+        "format": "f32le",
+        "rate": 44100,
+        "channels": 2
+      }
+    },
+    {
+      "name": "control",
+      "json": {
+        "proto": 1,
+        "role": "control",
+        "lva_version": "1.2.0"
+      },
+      "role": "control"
+    },
+    {
+      "name": "extra_fields_ignored",
+      "json": {
+        "proto": 1,
+        "role": "mic",
+        "future": "x"
+      },
+      "role": "mic"
+    },
+    {
+      "name": "proto_2",
+      "json": {
+        "proto": 2,
+        "role": "mic"
+      },
+      "refusal": "unsupported_proto"
+    },
+    {
+      "name": "no_proto",
+      "json": {
+        "role": "mic"
+      },
+      "refusal": "unsupported_proto"
+    },
+    {
+      "name": "unknown_role",
+      "json": {
+        "proto": 1,
+        "role": "speaker"
+      },
+      "refusal": "unknown_role"
+    },
+    {
+      "name": "empty_play_name",
+      "json": {
+        "proto": 1,
+        "role": "play:"
+      },
+      "refusal": "unknown_role"
+    },
+    {
+      "name": "play_without_format",
+      "json": {
+        "proto": 1,
+        "role": "play:tts"
+      },
+      "refusal": "unsupported_format"
+    },
+    {
+      "name": "play_bad_sample",
+      "json": {
+        "proto": 1,
+        "role": "play:tts",
+        "format": "u8",
+        "rate": 48000,
+        "channels": 1
+      },
+      "refusal": "unsupported_format"
+    },
+    {
+      "name": "play_bad_rate",
+      "json": {
+        "proto": 1,
+        "role": "play:tts",
+        "format": "s16le",
+        "rate": 4000,
+        "channels": 1
+      },
+      "refusal": "unsupported_format"
+    },
+    {
+      "name": "play_bad_channels",
+      "json": {
+        "proto": 1,
+        "role": "play:tts",
+        "format": "s16le",
+        "rate": 48000,
+        "channels": 3
+      },
+      "refusal": "unsupported_format"
+    }
+  ]
+}

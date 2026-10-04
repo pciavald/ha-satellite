@@ -1,0 +1,158 @@
+{
+  "sessions": [
+    {
+      "name": "mic",
+      "steps": [
+        [
+          "client",
+          "hello_mic"
+        ],
+        [
+          "helper",
+          "hello_mic_reply"
+        ],
+        [
+          "helper",
+          "pcm_mic"
+        ],
+        [
+          "helper",
+          "event_will_sleep"
+        ],
+        [
+          "client",
+          "event_sleep_ready"
+        ]
+      ]
+    },
+    {
+      "name": "mic_paused",
+      "steps": [
+        [
+          "client",
+          "hello_mic"
+        ],
+        [
+          "helper",
+          "hello_mic_reply"
+        ],
+        [
+          "helper",
+          "event_capture_paused"
+        ],
+        [
+          "helper",
+          "event_capture_resumed"
+        ],
+        [
+          "helper",
+          "pcm_mic"
+        ]
+      ]
+    },
+    {
+      "name": "play_tts",
+      "steps": [
+        [
+          "client",
+          "hello_play_tts"
+        ],
+        [
+          "helper",
+          "hello_play_reply"
+        ],
+        [
+          "client",
+          "pcm_play_s16le"
+        ],
+        [
+          "client",
+          "end"
+        ],
+        [
+          "helper",
+          "drained"
+        ]
+      ]
+    },
+    {
+      "name": "play_flush",
+      "steps": [
+        [
+          "client",
+          "hello_play_tts"
+        ],
+        [
+          "helper",
+          "hello_play_reply"
+        ],
+        [
+          "client",
+          "pcm_play_s16le"
+        ],
+        [
+          "client",
+          "flush"
+        ],
+        [
+          "helper",
+          "drained"
+        ]
+      ]
+    },
+    {
+      "name": "control",
+      "steps": [
+        [
+          "client",
+          "hello_control"
+        ],
+        [
+          "helper",
+          "hello_control_reply"
+        ],
+        [
+          "client",
+          "control_state"
+        ],
+        [
+          "helper",
+          "control_mute_mic"
+        ],
+        [
+          "client",
+          "control_ack_ok"
+        ],
+        [
+          "client",
+          "control_set_agc"
+        ],
+        [
+          "helper",
+          "control_set_agc_ack"
+        ]
+      ]
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "stale_ignored",
+      "revs": [
+        1,
+        2,
+        2,
+        1,
+        5,
+        4
+      ],
+      "accepted": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        false
+      ]
+    }
+  ]
+}
