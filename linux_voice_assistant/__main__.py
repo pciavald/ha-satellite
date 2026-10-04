@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import Callable, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 import soundcard as sc
@@ -241,6 +241,29 @@ async def main() -> Optional[Shutdown]:
         action="store_true",
         help="Start listening immediately after wake word detection, without waiting for the wake sound to finish",
     )
+    # ------------------------------------------------------------------
+    # External audio engine over a Unix socket (the macOS app)
+    # ------------------------------------------------------------------
+    parser.add_argument(
+        "--audio-input-socket",
+        metavar="PATH",
+        help="Read the microphone from an audio engine on this Unix socket instead of a sound device",
+    )
+    parser.add_argument(
+        "--audio-output-socket",
+        metavar="PATH",
+        help="Play TTS, announcements and sounds through an audio engine on this Unix socket (music stays on mpv)",
+    )
+    parser.add_argument(
+        "--control-socket",
+        metavar="PATH",
+        help="Share state and take commands (mute, talk) through an audio engine on this Unix socket; exits when it is gone for 30 s",
+    )
+    parser.add_argument(
+        "--persist-mute",
+        action="store_true",
+        help="Remember the mute switch in the preferences file across restarts",
+    )
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -346,18 +369,29 @@ async def main() -> Optional[Shutdown]:
     args.download_dir = Path(args.download_dir)
     args.download_dir.mkdir(parents=True, exist_ok=True)
 
+    loop = asyncio.get_running_loop()
+
     # Resolve microphone
-    if args.audio_input_device is not None:
-        try:
-            args.audio_input_device = int(args.audio_input_device)
-        except ValueError:
-            pass
-
-        mic = sc.get_microphone(args.audio_input_device)
+    engine_mic = None
+    engine_monitor: Dict[str, Any] = {}
+    if args.audio_input_socket:
+        engine_mic = _start_engine_microphone(args, loop, engine_monitor)
+        mic = engine_mic
     else:
-        mic = sc.default_microphone()
+        if args.audio_input_device is not None:
+            try:
+                args.audio_input_device = int(args.audio_input_device)
+            except ValueError:
+                pass
 
-    args.audio_input_channels = _input_channels(args.audio_input_channels, mic)
+            mic = sc.get_microphone(args.audio_input_device)
+        else:
+            mic = sc.default_microphone()
+
+        args.audio_input_channels = _input_channels(args.audio_input_channels, mic)
+
+        if sys.platform == "darwin":
+            _LOGGER.warning("No echo cancellation: the satellite hears its own playback (see --audio-input-socket)")
 
     # Load available wake words
     wake_word_dirs = [Path(ww_dir) for ww_dir in args.wake_word_dir]
@@ -414,6 +448,9 @@ async def main() -> Optional[Shutdown]:
     if args.enable_thinking_sound:
         preferences.thinking_sound = 1
 
+    if args.persist_mute and preferences.muted is None:
+        preferences.muted = False
+
     if args.mic_auto_gain or args.mic_noise_suppression:
         _require_webrtc()
 
@@ -424,6 +461,12 @@ async def main() -> Optional[Shutdown]:
 
     if args.mic_noise_suppression > 0:
         preferences.mic_noise_suppression = args.mic_noise_suppression
+
+    engine_player = None
+    if args.audio_output_socket:
+        from .player.helper import HelperPlayer
+
+        engine_player = HelperPlayer(args.audio_output_socket)
 
     # Load wake/stop models
     wake_models, active_wake_words, fallback_used = load_wake_models(
@@ -452,7 +495,7 @@ async def main() -> Optional[Shutdown]:
         active_wake_words=active_wake_words,
         stop_word=stop_model,
         music_player=MpvMediaPlayer(device=args.music_output_device or args.audio_output_device),
-        tts_player=MpvMediaPlayer(device=args.audio_output_device),
+        tts_player=MpvMediaPlayer(player=engine_player) if engine_player is not None else MpvMediaPlayer(device=args.audio_output_device),
         wakeup_sound=args.wakeup_sound,
         start_listening_sound=args.start_listening_sound,
         timer_finished_sound=args.timer_finished_sound,
@@ -478,6 +521,12 @@ async def main() -> Optional[Shutdown]:
         timer_max_ring_seconds=args.timer_max_ring_seconds,
         listen_during_wake_sound=args.listen_during_wake_sound,
     )
+
+    if engine_mic is not None:
+        state.input_processing = engine_mic.processing
+    if args.persist_mute:
+        state.persist_mute = True
+        state.muted = bool(preferences.muted)
 
     if fallback_used:
         # Fallback to the default model was used, save as active wake words
@@ -511,7 +560,6 @@ async def main() -> Optional[Shutdown]:
     # ------------------------------------------------------------------
     # ESPHome TCP server (with retry on EADDRINUSE)
     # ------------------------------------------------------------------
-    loop = asyncio.get_running_loop()
     shutdown = Shutdown(loop)
     shutdown.install()
     max_attempts = 15
@@ -577,10 +625,13 @@ async def main() -> Optional[Shutdown]:
     # Audio processing thread
     # ------------------------------------------------------------------
     audio_stop = threading.Event()
+    audio_kwargs: Dict[str, Any] = {"stop": audio_stop, "on_error": lambda: shutdown.request_exit_threadsafe(1)}
+    if engine_mic is not None:
+        audio_kwargs["resumed"] = engine_mic.pop_resumed
     process_audio_thread = threading.Thread(
         target=process_audio,
         args=(state, mic, args.audio_input_block_size),
-        kwargs={"stop": audio_stop, "on_error": lambda: shutdown.request_exit_threadsafe(1)},
+        kwargs=audio_kwargs,
         daemon=True,
     )
     process_audio_thread.start()
@@ -592,6 +643,7 @@ async def main() -> Optional[Shutdown]:
         mac_address=state.mac_address,
         host_ip_address=advertised_ip_address,  # type: ignore[arg-type]
         interfaces=(network.physical_ipv4_addresses() or None) if args.follow_network else None,
+        friendly_name=friendly_name if args.follow_network else None,
     )
     await discovery.register_server()
 
@@ -609,6 +661,10 @@ async def main() -> Optional[Shutdown]:
             follow_address=follow_address,
             on_address=lambda ip: setattr(state, "ip_address", ip),
         )
+        if engine_mic is not None:
+            # The engine reports sleep and wake itself while it is connected
+            monitor.engine_events = lambda: engine_mic.connected
+        engine_monitor["monitor"] = monitor
         monitor_task = asyncio.create_task(monitor.run())
 
     # ------------------------------------------------------------------
@@ -632,6 +688,14 @@ async def main() -> Optional[Shutdown]:
             )
             await asyncio.sleep(args.peripheral_startup_wait)
 
+    control_channel = None
+    if args.control_socket:
+        from .control import ControlChannel
+
+        control_channel = ControlChannel(args.control_socket, state, on_lost=lambda: shutdown.request_exit(0), lva_version=version)
+        state.control_channel = control_channel
+        await control_channel.start()
+
     _LOGGER.info("Server started (host=%s, port=%s)", host_ip_address, args.port)
     await shutdown.wait()
 
@@ -653,15 +717,33 @@ async def main() -> Optional[Shutdown]:
         if peripheral_api is not None:
             await peripheral_api.stop()
 
-    await shutdown.cleanup(
-        [
-            ("network monitor", stop_monitor),
-            ("zeroconf", discovery.async_close),
-            ("server", close_server),
-            ("peripheral API", stop_peripheral_api),
-            ("audio thread", stop_audio),
-        ]
-    )
+    async def stop_control() -> None:
+        if control_channel is not None:
+            await control_channel.stop()
+
+    async def close_engine_microphone() -> None:
+        # Wakes the audio thread if it waits on a paused capture
+        if engine_mic is not None:
+            await asyncio.to_thread(engine_mic.close)
+
+    async def close_engine_player() -> None:
+        if engine_player is not None:
+            await asyncio.to_thread(engine_player.close)
+
+    steps = [
+        ("network monitor", stop_monitor),
+        ("zeroconf", discovery.async_close),
+        ("server", close_server),
+        ("peripheral API", stop_peripheral_api),
+    ]
+    if control_channel is not None:
+        steps.append(("control", stop_control))
+    if engine_mic is not None:
+        steps.append(("audio engine microphone", close_engine_microphone))
+    steps.append(("audio thread", stop_audio))
+    if engine_player is not None:
+        steps.append(("audio engine playback", close_engine_player))
+    await shutdown.cleanup(steps)
     _LOGGER.debug("Server stopped")
     return shutdown
 
@@ -723,6 +805,47 @@ def _mac_address(value: str) -> str:
     return ":".join(digits[i : i + 2] for i in range(0, 12, 2))
 
 
+def _start_engine_microphone(args: argparse.Namespace, loop: asyncio.AbstractEventLoop, engine_monitor: Dict[str, Any]):
+    """Connect the microphone to the audio engine, or exit when it does not answer."""
+    from .audio_source import HelperSource
+
+    if args.audio_input_device is not None:
+        _LOGGER.warning("--audio-input-device is ignored with --audio-input-socket")
+    if args.audio_input_channels != 1:
+        _LOGGER.warning("--audio-input-channels is ignored with --audio-input-socket, the audio engine sends one channel")
+    args.audio_input_channels = 1
+
+    def on_event(code: str, _event: Dict[str, Any]) -> None:
+        if code in ("will_sleep", "did_wake", "network_changed"):
+            asyncio.run_coroutine_threadsafe(_engine_power_event(code, source, engine_monitor.get("monitor")), loop)
+
+    source = HelperSource(args.audio_input_socket, on_event=on_event)
+    source.start()
+    if not source.wait_connected(10.0):
+        _LOGGER.error("No audio engine at %s: %s", args.audio_input_socket, source.last_error)
+        source.close()
+        sys.exit(1)
+    return source
+
+
+async def _engine_power_event(code: str, source, monitor: Optional[NetworkMonitor]) -> None:
+    """Handle sleep and wake reported by the audio engine; answer will_sleep with sleep_ready."""
+    try:
+        if monitor is not None:
+            if code == "will_sleep":
+                # The engine lets the system sleep 2 s after will_sleep at the latest
+                await asyncio.wait({asyncio.ensure_future(monitor.will_sleep())}, timeout=1.5)
+            elif code == "did_wake":
+                await monitor.did_wake()
+            else:
+                await monitor.network_changed()
+        elif code == "will_sleep":
+            _LOGGER.info("System going to sleep")
+    finally:
+        if code == "will_sleep":
+            source.send_event("sleep_ready")
+
+
 def _require_webrtc() -> None:
     """Exit when mic auto gain or noise suppression is requested without webrtc-noise-gain."""
     try:
@@ -760,11 +883,15 @@ def process_audio(
     block_size: int,
     stop: Optional[threading.Event] = None,
     on_error: Optional[Callable[[], None]] = None,
+    resumed: Optional[Callable[[], bool]] = None,
 ):
     """Process audio chunks from the microphone until stop is set.
 
     A failure outside the per-block handler calls on_error, so the caller can
     end the process instead of keeping a satellite that no longer hears.
+    When resumed() returns True (an audio engine resumed capture after a
+    pause), the streaming wake word features start over, so no window spans
+    the pause.
     """
     n_channels = state.audio_input_channels
 
@@ -786,6 +913,10 @@ def process_audio(
             while (stop is None) or (not stop.is_set()):
                 # Shape: (block_size, n_channels) for stereo, (block_size, 1) for mono.
                 raw = mic_in.record(block_size)  # float32, range [-1, 1]
+                if resumed is not None and resumed() and micro_features is not None:
+                    micro_features = MicroWakeWordFeatures()
+                    if oww_features is not None:
+                        oww_features = OpenWakeWordFeatures.from_builtin()
                 mic_vol_scalar = max(0.1, min(1.0, state.mic_volume / 100.0))
 
                 # Build per-channel byte arrays.  Channel 0 is the primary
@@ -802,7 +933,7 @@ def process_audio(
                 agc = state.preferences.mic_auto_gain or 0
                 ns = state.preferences.mic_noise_suppression or 0
 
-                if (agc > 0 or ns > 0) and webrtc_usable:
+                if (agc > 0 or ns > 0) and webrtc_usable and not state.input_processing:
                     try:
                         if webrtc is None:
                             webrtc = WebRTCProcessor(agc_level=agc, ns_level=ns)
@@ -969,7 +1100,7 @@ def process_audio(
                             state.stop_word.debug_probabilities = True
                             stopped = True
 
-                    if stopped and (state.stop_word.id in state.active_wake_words) and not state.muted:
+                    if stopped and (state.stop_word.id in state.active_wake_words) and not (state.muted and not state.mute_override):
                         _LOGGER.debug("Stop word detected")
                         state.satellite.stop()
                 except Exception:  # pylint: disable=broad-except

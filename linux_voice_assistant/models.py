@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from queue import Queue
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 if TYPE_CHECKING:
     from google.protobuf import message
@@ -95,6 +95,9 @@ class Preferences:
     mic_noise_suppression: int = 0
     mic_volume: int = 100  # 1–100, default maximum
 
+    # Only stored with --persist-mute; left out of the file otherwise
+    muted: Optional[bool] = None
+
 
 @dataclass
 class ServerState:
@@ -159,6 +162,14 @@ class ServerState:
     # Assigned in __main__ before the event loop starts.
     peripheral_api: "Optional[Any]" = None  # PeripheralAPIServer at runtime
 
+    # Control role of an external audio engine (--control-socket), None otherwise
+    control_channel: "Optional[Any]" = None  # ControlChannel at runtime
+    # One-shot push-to-talk while muted, only set through the control role
+    mute_override: bool = False
+    # Processing the input source already applies (e.g. ("aec", "ns")); empty for soundcard
+    input_processing: Tuple[str, ...] = ()
+    persist_mute: bool = False
+
     sensitivity_1_number_entity: "Optional[WakeWord1SensitivityNumberEntity]" = None
     sensitivity_2_number_entity: "Optional[WakeWord2SensitivityNumberEntity]" = None
     stop_sensitivity_number_entity: "Optional[StopWordSensitivityNumberEntity]" = None
@@ -205,9 +216,12 @@ class ServerState:
         """Save preferences as JSON."""
         _LOGGER.debug("Saving preferences: %s", self.preferences_path)
         self.preferences_path.parent.mkdir(parents=True, exist_ok=True)
+        preferences = asdict(self.preferences)
+        if preferences["muted"] is None:
+            del preferences["muted"]
         with open(self.preferences_path, "w", encoding="utf-8") as preferences_file:
             json.dump(
-                asdict(self.preferences),
+                preferences,
                 preferences_file,
                 ensure_ascii=False,
                 indent=4,

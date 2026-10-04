@@ -6,6 +6,7 @@ fails to open). Nothing is advertised and nothing leaves the loopback.
 """
 
 import asyncio
+import json
 import sys
 import time
 from unittest.mock import MagicMock, patch
@@ -48,6 +49,8 @@ class FakeZeroconf:
 
     async def register_server(self) -> None:
         say(f"zeroconf interfaces={self.kwargs.get('interfaces')!r}")
+        loaded = sorted(name for name in sys.modules if name.startswith("linux_voice_assistant") or name.split(".")[0] == "av")
+        say(f"modules {json.dumps(loaded)}")
         say("registered")
 
     async def async_close(self) -> None:

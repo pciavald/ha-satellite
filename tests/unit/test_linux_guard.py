@@ -31,6 +31,7 @@ _LINUX_AUDIO_STACK = {
 }
 
 _MACOS_ONLY_MODULES = (
+    "av",
     "objc",
     "PyObjCTools",
     "AppKit",
@@ -82,6 +83,9 @@ class TestLinuxDependencies:
     def test_linux_install_pulls_no_pyobjc(self):
         assert not [name for name in _linux_requirements() if name.startswith("pyobjc")]
 
+    def test_linux_install_pulls_no_pyav(self):
+        assert "av" not in _linux_requirements()
+
 
 class TestLinuxCliDefaults:
     def test_linux_cli_defaults_match_upstream(self, monkeypatch):
@@ -104,6 +108,10 @@ class TestLinuxCliDefaults:
         assert args.output_only is False
         assert args.mac_address is None
         assert args.follow_network is False
+        assert args.audio_input_socket is None
+        assert args.audio_output_socket is None
+        assert args.control_socket is None
+        assert args.persist_mute is False
 
     def test_linux_cli_still_accepts_dual_channel_capture(self, monkeypatch):
         assert _parse_cli(monkeypatch, ["--audio-input-channels", "2"]).audio_input_channels == 2
@@ -174,6 +182,9 @@ class TestLinuxImportGraph:
 
     def test_linux_soundcard_uses_pulseaudio_backend(self, import_report):
         assert import_report["soundcard"] == "soundcard.pulseaudio"
+
+    def test_engine_modules_import_without_pyav(self, import_report):
+        assert {"linux_voice_assistant.audio_source", "linux_voice_assistant.control", "linux_voice_assistant.player.helper"} <= set(import_report["imported"])
 
     def test_webrtc_noise_gain_stays_lazy(self, import_report):
         assert "webrtc_noise_gain" not in import_report["modules"]
