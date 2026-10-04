@@ -1,0 +1,24 @@
+{
+  "_comment": "Copied to ~/Library/Application Support/ha-satellite/satellite.json by 'macos/build.sh config'. Paths must be absolute: the app starts at login with a minimal environment. The app adds no flag of its own, so the same command runs by hand.",
+  "python": "@REPO@/.venv/bin/python",
+  "cwd": "@REPO@",
+  "args": [
+    "-m", "linux_voice_assistant",
+    "--name", "@NAME@",
+    "--host", "0.0.0.0",
+    "--mac-address", "@MAC@",
+    "--follow-network",
+    "--audio-input-socket", "@SUPPORT@/audio.sock",
+    "--audio-output-socket", "@SUPPORT@/audio.sock",
+    "--control-socket", "@SUPPORT@/audio.sock",
+    "--persist-mute",
+    "--disable-peripheral-api",
+    "--preferences-file", "@SUPPORT@/preferences.json",
+    "--download-dir", "@SUPPORT@/downloads"
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1",
+    "LVA_LIBMPV_DIR": "@LIBMPV@"
+  },
+  "agc": false
+}
