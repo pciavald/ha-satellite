@@ -77,6 +77,7 @@ For all other users, we have different installation methods available (Docker, s
 usage: __main__.py [-h] [--name NAME] [--audio-input-device AUDIO_INPUT_DEVICE] [--list-input-devices] [--audio-input-block-size AUDIO_INPUT_BLOCK_SIZE] [--audio-output-device AUDIO_OUTPUT_DEVICE] [--music-output-device MUSIC_OUTPUT_DEVICE] [--list-output-devices] [--wake-word-dir WAKE_WORD_DIR]  [--mic-auto-gain] [--mic-noise-suppression]
                    [--wake-model WAKE_MODEL] [--stop-model STOP_MODEL] [--download-dir DOWNLOAD_DIR] [--refractory-seconds REFRACTORY_SECONDS] [--wakeup-sound WAKEUP_SOUND] [--timer-finished-sound TIMER_FINISHED_SOUND] [--processing-sound PROCESSING_SOUND]
                    [--mute-sound MUTE_SOUND] [--unmute-sound UNMUTE_SOUND] [--preferences-file PREFERENCES_FILE] [--host HOST] [--network-interface NETWORK_INTERFACE] [--mac-address MAC_ADDRESS] [--follow-network] [--port PORT] [--enable-thinking-sound] [--listen-during-wake-sound] [--debug]
+                   [--audio-input-socket PATH] [--audio-output-socket PATH] [--control-socket PATH] [--persist-mute]
 ```
 
 | Parameter                       | Description                                                   | Default                              |
@@ -115,9 +116,15 @@ usage: __main__.py [-h] [--name NAME] [--audio-input-device AUDIO_INPUT_DEVICE] 
 | `--peripheral-port`             | Port for the peripheral WebSocket API                         | 6055                                 |
 | `--peripheral-volume-step`      | Volume change per button press, 0.0–1.0                       | %(default)s                          |
 | `--disable-peripheral-api`      | Disable the peripheral WebSocket API entirely                 | False                                |
+| `--audio-input-socket`          | Read the microphone from an audio engine on this Unix socket  | None (sound device)                  |
+| `--audio-output-socket`         | Play TTS and sounds through an audio engine on this socket; music stays on mpv | None (mpv)          |
+| `--control-socket`              | Share state and take mute/talk commands through an audio engine; exits after 30 s without it | None |
+| `--persist-mute`                | Remember the mute switch across restarts                      | False                                |
 | `--debug`                       | Print DEBUG messages to console                               | False                                |
 | `--colored-debug`               | Print colored DEBUG messages to console                       | False                                |
 | `--output-only`                 | Enable output only mode                                       | False                                |
+
+The socket options connect to an external audio engine, such as the macOS app that does echo cancellation (`macos/`); the protocol is described in `tests/fixtures/helper_protocol/README.md`. Without them nothing changes. PyAV, used to decode TTS for `--audio-output-socket`, is only installed on macOS.
 
 💡 **Note:** There are detailed explanations on the controlled entities from device page in the [configuration](docs/configuration.md) file.
 
