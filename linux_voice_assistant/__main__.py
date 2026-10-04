@@ -640,6 +640,16 @@ def _setup_logging(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------------
 
 
+def _device_blocksize(block_size: int) -> Optional[int]:
+    """Return the soundcard recorder buffer size for the frames read per block.
+
+    On CoreAudio, soundcard's blocksize is the device buffer in frames at the
+    device rate, capped at 512, not the number of 16 kHz frames read per block:
+    let the device choose it there and keep the explicit size elsewhere.
+    """
+    return None if sys.platform == "darwin" else block_size
+
+
 def process_audio(state: ServerState, mic, block_size: int):
     """Process audio chunks from the microphone."""
     n_channels = state.audio_input_channels
@@ -657,7 +667,7 @@ def process_audio(state: ServerState, mic, block_size: int):
 
     try:
         _LOGGER.debug("Opening audio input device: %s", mic.name)
-        with mic.recorder(samplerate=16000, channels=n_channels, blocksize=block_size) as mic_in:
+        with mic.recorder(samplerate=16000, channels=n_channels, blocksize=_device_blocksize(block_size)) as mic_in:
             while True:
                 # Shape: (block_size, n_channels) for stereo, (block_size, 1) for mono.
                 raw = mic_in.record(block_size)  # float32, range [-1, 1]
