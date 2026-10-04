@@ -40,7 +40,9 @@ public enum StatusIcon: String, Sendable {
 
 /// Everything the menu depends on.
 public struct AppState: Equatable, Sendable {
+  /// The satellite's name in Home Assistant.
   public var name: String
+  public var network: MacSource = .active
   public var hub = HubState()
   public var supervisor: SupervisorStatus = .stopped
   public var runSatellite = true
@@ -67,6 +69,7 @@ public struct MenuModel: Equatable, Sendable {
   public var homeAssistant: String
   public var microphone: String
   public var satellite: String
+  public var network: String
   public var notice: String?
   public var listeningChecked: Bool
   public var listeningEnabled: Bool
@@ -113,11 +116,8 @@ public struct MenuModel: Equatable, Sendable {
 
     var satelliteProblem = false
     switch state.supervisor {
-    case .notConfigured(nil):
-      satellite = "Satellite: not configured (no satellite.json)"
-      satelliteProblem = state.runSatellite
-    case .notConfigured(let error?):
-      satellite = "Satellite: invalid satellite.json (\(error))"
+    case .notConfigured(let reason):
+      satellite = "Satellite: not started (\(reason))"
       satelliteProblem = state.runSatellite
     case .disabled:
       satellite = hub.controlConnected ? "Satellite: started by hand" : "Satellite: not started by the app"
@@ -129,6 +129,15 @@ public struct MenuModel: Equatable, Sendable {
     case .stopped:
       satellite = "Satellite: stopped"
       satelliteProblem = state.runSatellite
+    }
+
+    switch state.network {
+    case .configured(let mac):
+      network = "Network: \(mac) (satellite.json)"
+    case .detected(let interface):
+      network = "Network: \(interface.kind.rawValue) \(interface.bsdName), \(interface.mac)"
+    case .active:
+      network = "Network: no built-in Wi-Fi, the active interface's address"
     }
 
     notice = hub.notice ?? state.appNotice ?? state.shortcutError

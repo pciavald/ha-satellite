@@ -231,24 +231,23 @@ class TestMain:
 
 
 class TestMacAppConfig:
-    def test_example_arguments_are_lva_flags(self, monkeypatch, tmp_path):
-        text = (_REPO_DIR / "macos" / "satellite.json.example").read_text(encoding="utf-8")
-        values = {"REPO": str(_REPO_DIR), "SUPPORT": str(tmp_path), "NAME": "Mac", "MAC": "AA-BB-CC-DD-EE-FF", "LIBMPV": "/opt/lib"}
-        for key, value in values.items():
-            text = text.replace(f"@{key}@", value)
-        config = json.loads(text)
+    def test_app_command_uses_lva_flags(self, monkeypatch):
+        """The command the macOS app builds (the fixture its Swift tests check) is valid for LVA."""
+        fixture = json.loads((_REPO_DIR / "tests" / "fixtures" / "macos_app" / "command.json").read_text(encoding="utf-8"))
+        command = fixture["args"]
+        module = command.index("-m")
+        assert command[module : module + 2] == ["-m", "linux_voice_assistant"]
+        args = _parse_cli(monkeypatch, command[module + 2 :])
 
-        assert config["python"] == f"{_REPO_DIR}/.venv/bin/python"
-        assert config["args"][:2] == ["-m", "linux_voice_assistant"]
-        args = _parse_cli(monkeypatch, config["args"][2:])
-
-        socket_path = f"{tmp_path}/audio.sock"
+        socket_path = f"{fixture['support']}/audio.sock"
         assert args.audio_input_socket == socket_path
         assert args.audio_output_socket == socket_path
         assert args.control_socket == socket_path
         assert args.host == "0.0.0.0"
         assert args.mac_address == "aa:bb:cc:dd:ee:ff"
-        assert args.name == "Mac"
+        assert args.name == fixture["computer_name"]
         assert args.follow_network is True
         assert args.persist_mute is True
         assert args.disable_peripheral_api is True
+        assert str(args.preferences_file) == f"{fixture['support']}/preferences.json"
+        assert str(args.download_dir) == f"{fixture['support']}/downloads"

@@ -4,6 +4,7 @@ import IOKit.pwr_mgt
 import Network
 import SatelliteCore
 import ServiceManagement
+import SystemConfiguration
 
 enum AppInfo {
   static var version: String {
@@ -17,6 +18,42 @@ enum AppInfo {
 
   static var fullVersion: String {
     commit.map { "\(version) (\($0))" } ?? version
+  }
+}
+
+enum Machine {
+  /// The computer name of System Settings > General > Sharing.
+  static var computerName: String? {
+    SCDynamicStoreCopyComputerName(nil, nil) as String?
+  }
+
+  /// Hardware interfaces with their permanent addresses (not the private
+  /// Wi-Fi address macOS may use on a network).
+  static var interfaces: [NetworkInterface] {
+    guard let all = SCNetworkInterfaceCopyAll() as? [SCNetworkInterface] else { return [] }
+    return all.compactMap { interface in
+      guard let bsd = SCNetworkInterfaceGetBSDName(interface) as String?,
+            let mac = SCNetworkInterfaceGetHardwareAddressString(interface) as String?
+      else { return nil }
+      let type = SCNetworkInterfaceGetInterfaceType(interface).map { $0 as String }
+      let kind: NetworkInterface.Kind
+      if type == kSCNetworkInterfaceTypeIEEE80211 as String {
+        kind = .wifi
+      } else if type == kSCNetworkInterfaceTypeEthernet as String {
+        kind = .ethernet
+      } else {
+        kind = .other
+      }
+      return NetworkInterface(bsdName: bsd, kind: kind, mac: mac)
+    }
+  }
+
+  static var builtInInterface: NetworkInterface? {
+    NetworkIdentity.builtIn(interfaces)
+  }
+
+  static var bundle: BundleLayout {
+    BundleLayout(contents: Bundle.main.bundleURL.appendingPathComponent("Contents"))
   }
 }
 

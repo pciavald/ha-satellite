@@ -7,6 +7,7 @@ protocol MenuActions: AnyObject {
   func talkNow()
   func stopPipeline()
   func chooseShortcut(_ shortcut: Shortcut)
+  func chooseName()
   func replaceSiri()
   func toggleOpenAtLogin()
   func openLogs()
@@ -26,6 +27,7 @@ final class MenuController: NSObject, NSMenuDelegate {
   private let homeAssistantItem = NSMenuItem()
   private let microphoneItem = NSMenuItem()
   private let satelliteItem = NSMenuItem()
+  private let networkItem = NSMenuItem()
   private let noticeItem = NSMenuItem()
   private let listeningItem = NSMenuItem(title: "Listen for Wake Word", action: #selector(toggleListening), keyEquivalent: "")
   private let talkItem = NSMenuItem(title: "Talk Now", action: #selector(talkNow), keyEquivalent: "")
@@ -42,7 +44,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     super.init()
     menu.delegate = self
     menu.autoenablesItems = false
-    for item in [titleItem, homeAssistantItem, microphoneItem, satelliteItem, noticeItem] {
+    for item in [titleItem, homeAssistantItem, microphoneItem, satelliteItem, networkItem, noticeItem] {
       item.isEnabled = false
       menu.addItem(item)
     }
@@ -59,6 +61,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
     shortcutItem.submenu = shortcutMenu
     menu.addItem(shortcutItem)
+    menu.addItem(item("Name…", #selector(chooseName)))
     menu.addItem(item("Replace Siri…", #selector(replaceSiri)))
     menu.addItem(loginItem)
     menu.addItem(.separator())
@@ -112,6 +115,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     homeAssistantItem.title = model.homeAssistant
     microphoneItem.title = model.microphone
     satelliteItem.title = model.satellite
+    networkItem.title = model.network
     noticeItem.title = model.notice ?? ""
     noticeItem.isHidden = model.notice == nil
     listeningItem.state = model.listeningChecked ? .on : .off
@@ -143,6 +147,7 @@ final class MenuController: NSObject, NSMenuDelegate {
   @objc private func restartSatellite() { actions?.restartSatellite() }
   @objc private func toggleRunSatellite() { actions?.toggleRunSatellite() }
   @objc private func about() { actions?.about() }
+  @objc private func chooseName() { actions?.chooseName() }
 
   @objc private func chooseShortcut(_ sender: NSMenuItem) {
     guard let raw = sender.representedObject as? String, let shortcut = Shortcut(rawValue: raw) else { return }

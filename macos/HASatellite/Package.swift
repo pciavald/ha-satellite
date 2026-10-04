@@ -31,6 +31,7 @@ let package = Package(
         .linkedFramework("AppKit"),
         .linkedFramework("Carbon"),
         .linkedFramework("ServiceManagement"),
+        .linkedFramework("SystemConfiguration"),
         .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
       ]
     ),

@@ -17,14 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
   private var lock: InstanceLock?
   private var hub: Hub!
   private var supervisor: Supervisor!
-  private var config: SatelliteConfig?
+  private var config = SatelliteConfig()
   private var configError: String?
+  private var builtIn: NetworkInterface?
   private var menu: MenuController!
   private var hotkey: Hotkey!
   private let remapper = KeyRemapper()
   private var power: PowerMonitor?
   private var deviceWatch: AnyObject?
-  private var state = AppState(name: Host.current().localizedName ?? "Mac")
+  private var state = AppState(name: SatelliteName.fallback(Machine.computerName))
   private var lifeActivity: NSObjectProtocol?
   private var engineActivity: NSObjectProtocol?
   private var timer: Timer?
@@ -69,13 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
     menu = MenuController(actions: self)
     hotkey = Hotkey { [weak self] in self?.talkNow() }
 
-    let socket = config?.socket ?? paths.socket.path
+    let socket = config.socket ?? paths.socket.path
     hub = Hub(socketPath: socket, helperVersion: AppInfo.fullVersion)
     hub.log = { [log] in log($0) }
     hub.onChange = { [weak self] hubState in
       DispatchQueue.main.async { self?.hubChanged(hubState) }
     }
-    hub.setAGC(config?.agc ?? false)
+    hub.setAGC(config.agc)
     hub.setMicAuthorized(state.micPermission == .authorized)
     do {
       try hub.start()
@@ -112,15 +113,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
     }
   }
 
+  /// Reads satellite.json and detects the built-in interface again; the
+  /// name and network lines of the menu follow.
   private func loadConfig() {
     do {
       config = try SatelliteConfig.load(paths.config)
       configError = nil
     } catch {
-      config = nil
       configError = "\(error)"
       log("satellite.json: \(error)")
     }
+    builtIn = Machine.builtInInterface
+    state.name = config.resolvedName(computerName: Machine.computerName)
+    state.network = config.macSource(builtIn: builtIn)
+  }
+
+  /// nil, with the reason shown in the menu, when the satellite cannot start.
+  private func launchCommand() -> LaunchCommand? {
+    loadConfig()
+    render()
+    if let configError {
+      supervisor.setStatus(.notConfigured("invalid satellite.json: \(configError)"))
+      return nil
+    }
+    let bundle = Machine.bundle
+    if config.python == nil, !bundle.hasPython {
+      supervisor.setStatus(.notConfigured("no bundled Python at \(bundle.python.path)"))
+      return nil
+    }
+    return config.command(bundle: bundle, paths: paths, computerName: Machine.computerName, builtIn: builtIn)
   }
 
   private func startSatellite() {
@@ -128,12 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
       supervisor.setStatus(.disabled)
       return
     }
-    loadConfig()
-    guard let config else {
-      supervisor.setStatus(.notConfigured(configError))
-      return
-    }
-    supervisor.start(config)
+    guard let command = launchCommand() else { return }
+    supervisor.start(command)
   }
 
   // MARK: quit
@@ -327,15 +344,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
   }
 
   func restartSatellite() {
+    restart(reason: "from the menu")
+  }
+
+  private func restart(reason: String) {
     guard state.runSatellite else { return }
-    loadConfig()
-    guard let config else {
-      supervisor.setStatus(.notConfigured(configError))
+    guard let command = launchCommand() else {
+      supervisor.stop { DispatchQueue.main.async { [weak self] in self?.startSatellite() } }
       return
     }
-    log("restarting the satellite from the menu")
+    log("restarting the satellite \(reason)")
     supervisor.stop { [weak self] in
-      DispatchQueue.main.async { self?.supervisor.start(config) }
+      DispatchQueue.main.async { self?.supervisor.start(command) }
+    }
+  }
+
+  func chooseName() {
+    let alert = NSAlert()
+    alert.messageText = "Satellite Name"
+    alert.informativeText = "The name of this Mac in Home Assistant. The satellite restarts to announce it; Home Assistant keeps the same device."
+    alert.addButton(withTitle: "Rename")
+    alert.addButton(withTitle: "Cancel")
+    let field = NSTextField(string: state.name)
+    field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+    alert.accessoryView = field
+    alert.window.initialFirstResponder = field
+    NSApp.activate()
+    while alert.runModal() == .alertFirstButtonReturn {
+      do {
+        let name = try SatelliteName.validate(field.stringValue)
+        guard name != state.name || config.name == nil else { return }
+        try ConfigFile.setName(name, at: paths.config)
+        log("satellite name: \(name)")
+        restart(reason: "with the name \(name)")
+        if !state.runSatellite {
+          loadConfig()
+          render()
+        }
+        return
+      } catch {
+        alert.informativeText = "\(error). Use 1 to \(SatelliteName.maxLength) characters."
+      }
     }
   }
 
@@ -356,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuActions, @unchecke
     alert.messageText = "HA Satellite \(AppInfo.fullVersion)"
     var lines = ["A Home Assistant voice satellite for this Mac, built on linux-voice-assistant."]
     if let lva = state.hub.lvaVersion { lines.append("Satellite (LVA) \(lva).") }
+    lines.append("Name: \(state.name)")
     lines.append("Configuration: \(paths.config.path)")
     lines.append("Logs: \(paths.logs.path)")
     alert.informativeText = lines.joined(separator: "\n")

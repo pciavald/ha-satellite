@@ -113,6 +113,7 @@ final class MenuModelTests: XCTestCase {
     XCTAssertEqual(model.homeAssistant, "Home Assistant: connected")
     XCTAssertEqual(model.microphone, "Microphone: listening, echo cancellation on")
     XCTAssertEqual(model.satellite, "Satellite: running")
+    XCTAssertEqual(model.network, "Network: no built-in Wi-Fi, the active interface's address")
     XCTAssertTrue(model.listeningChecked)
     XCTAssertTrue(model.listeningEnabled)
     XCTAssertTrue(model.talkEnabled)
@@ -150,18 +151,29 @@ final class MenuModelTests: XCTestCase {
     s.supervisor = .restarting(in: 30, lastExit: "exit code 1", failing: true)
     model = MenuModel(s)
     XCTAssertEqual(model.satellite, "Satellite failing, see logs")
-    s.supervisor = .notConfigured(nil)
-    XCTAssertEqual(MenuModel(s).satellite, "Satellite: not configured (no satellite.json)")
+    s.supervisor = .notConfigured("invalid satellite.json: unknown key \"x\" in satellite.json")
+    model = MenuModel(s)
+    XCTAssertEqual(model.satellite, "Satellite: not started (invalid satellite.json: unknown key \"x\" in satellite.json)")
+    XCTAssertEqual(model.icon, .problem)
     s.supervisor = .disabled
     model = MenuModel(s)
     XCTAssertEqual(model.satellite, "Satellite: not started by the app")
     XCTAssertNotEqual(model.icon, .problem, "development mode is not a problem")
   }
 
+  func testNetworkLine() {
+    var s = state()
+    s.network = .detected(NetworkInterface(bsdName: "en0", kind: .wifi, mac: "aa:bb:cc:dd:ee:ff"))
+    XCTAssertEqual(MenuModel(s).network, "Network: Wi-Fi en0, aa:bb:cc:dd:ee:ff")
+    s.network = .configured("11:22:33:44:55:66")
+    XCTAssertEqual(MenuModel(s).network, "Network: 11:22:33:44:55:66 (satellite.json)")
+    XCTAssertEqual(MenuModel(s).icon, .listening, "not a problem")
+  }
+
   func testMicrophoneProblems() {
     var s = state()
     s.micPermission = .denied
-    var model = MenuModel(s)
+    let model = MenuModel(s)
     XCTAssertEqual(model.microphone, "Microphone: not authorized")
     XCTAssertEqual(model.icon, .problem)
     XCTAssertTrue(model.accessibilityLabel.contains("not authorized"))

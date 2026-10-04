@@ -13,17 +13,20 @@ enum CLI {
       "config": paths.config.path,
       "logs": paths.logs.path,
     ]
+    let builtIn = Machine.builtInInterface
+    if let builtIn {
+      object["built_in_interface"] = "\(builtIn.kind.rawValue) \(builtIn.bsdName) \(builtIn.mac)"
+    }
     do {
-      if let config = try SatelliteConfig.load(paths.config) {
-        object["configured"] = true
-        object["socket"] = config.socket ?? paths.socket.path
-        object["python"] = config.python
-      } else {
-        object["configured"] = false
-        object["socket"] = paths.socket.path
-      }
+      let config = try SatelliteConfig.load(paths.config)
+      let command = config.command(bundle: Machine.bundle, paths: paths, computerName: Machine.computerName, builtIn: builtIn)
+      object["name"] = config.resolvedName(computerName: Machine.computerName)
+      object["socket"] = config.socket ?? paths.socket.path
+      object["python"] = command.python
+      object["bundled_python"] = config.python == nil
+      object["python_present"] = FileManager.default.isExecutableFile(atPath: command.python)
+      object["command"] = [command.python] + command.args
     } catch {
-      object["configured"] = false
       object["config_error"] = "\(error)"
     }
     if let text = try? String(contentsOf: paths.pidFile, encoding: .utf8) {

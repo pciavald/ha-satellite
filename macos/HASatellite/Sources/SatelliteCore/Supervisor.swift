@@ -42,8 +42,8 @@ public struct Backoff: Equatable, Sendable {
 }
 
 public enum SupervisorStatus: Equatable, Sendable {
-  /// No `satellite.json` (nil), or an invalid one (the error).
-  case notConfigured(String?)
+  /// An invalid `satellite.json`, or no interpreter to run (the reason).
+  case notConfigured(String)
   /// "Run Satellite Process" is off (development).
   case disabled
   case running(pid: Int32)
@@ -92,7 +92,7 @@ public final class Supervisor: @unchecked Sendable {
   private let logFile: URL
   private let grace: TimeInterval
   private var backoff: Backoff
-  private var config: SatelliteConfig?
+  private var command: LaunchCommand?
   private var wanted = false
   private var child: (pid: pid_t, started: TimeInterval, source: DispatchSourceProcess)?
   private var stopping: [() -> Void] = []
@@ -111,9 +111,9 @@ public final class Supervisor: @unchecked Sendable {
 
   // MARK: public API (any thread)
 
-  public func start(_ config: SatelliteConfig) {
+  public func start(_ command: LaunchCommand) {
     queue.async { [self] in
-      self.config = config
+      self.command = command
       wanted = true
       backoff.reset()
       startLogTimer()
@@ -152,8 +152,8 @@ public final class Supervisor: @unchecked Sendable {
   /// Stop, then start again without backoff.
   public func restart() {
     stop { [weak self] in
-      guard let self, let config = self.config else { return }
-      self.start(config)
+      guard let self, let command = self.command else { return }
+      self.start(command)
     }
   }
 
@@ -181,11 +181,11 @@ public final class Supervisor: @unchecked Sendable {
   // MARK: queue
 
   private func spawn() {
-    guard wanted, let config else { return }
+    guard wanted, let command else { return }
     rotate(limit: Self.logLimit)
     let pid: pid_t
     do {
-      pid = try Self.spawn(config, logFile: logFile)
+      pid = try Self.spawn(command, logFile: logFile)
     } catch {
       log("cannot start the satellite: \(error)")
       scheduleRestart(uptime: 0, lastExit: "\(error)")
@@ -199,7 +199,7 @@ public final class Supervisor: @unchecked Sendable {
       try? FileManager.default.createDirectory(at: pidFile.deletingLastPathComponent(), withIntermediateDirectories: true)
       try? "\(pid) \(start)\n".write(to: pidFile, atomically: true, encoding: .utf8)
     }
-    log("started the satellite (pid \(pid)): \(config.python) \(config.args.joined(separator: " "))")
+    log("started the satellite (pid \(pid)): \(command.line)")
     status = .running(pid: pid)
     // The child may have exited before the source was registered.
     var raw: Int32 = 0
@@ -279,7 +279,7 @@ public final class Supervisor: @unchecked Sendable {
     public var description: String
   }
 
-  static func spawn(_ config: SatelliteConfig, logFile: URL) throws -> pid_t {
+  static func spawn(_ command: LaunchCommand, logFile: URL) throws -> pid_t {
     try FileManager.default.createDirectory(at: logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
     let logFD = open(logFile.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o644)
     guard logFD >= 0 else { throw SpawnError(description: "cannot open \(logFile.path): \(String(cString: strerror(errno)))") }
@@ -291,7 +291,7 @@ public final class Supervisor: @unchecked Sendable {
     posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
     posix_spawn_file_actions_adddup2(&actions, logFD, 1)
     posix_spawn_file_actions_adddup2(&actions, logFD, 2)
-    posix_spawn_file_actions_addchdir_np(&actions, config.cwd)
+    posix_spawn_file_actions_addchdir_np(&actions, command.cwd)
 
     var attributes: posix_spawnattr_t?
     posix_spawnattr_init(&attributes)
@@ -305,17 +305,17 @@ public final class Supervisor: @unchecked Sendable {
     posix_spawnattr_setsigdefault(&attributes, &defaults)
 
     var environment = ProcessInfo.processInfo.environment
-    for (key, value) in config.env { environment[key] = value }
-    let argv = ([config.python] + config.args).map { strdup($0) } + [nil]
+    for (key, value) in command.env { environment[key] = value }
+    let argv = ([command.python] + command.args).map { strdup($0) } + [nil]
     let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
     defer {
       argv.forEach { free($0) }
       envp.forEach { free($0) }
     }
     var pid: pid_t = 0
-    let result = posix_spawn(&pid, config.python, &actions, &attributes, argv, envp)
+    let result = posix_spawn(&pid, command.python, &actions, &attributes, argv, envp)
     guard result == 0 else {
-      throw SpawnError(description: "posix_spawn \(config.python): \(String(cString: strerror(result)))")
+      throw SpawnError(description: "posix_spawn \(command.python): \(String(cString: strerror(result)))")
     }
     return pid
   }
