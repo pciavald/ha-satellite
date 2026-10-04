@@ -268,7 +268,7 @@ The following variables can be configured in the `.env` or in the service file:
 | `PREFERENCES_FILE` | (optional) | Path to a custom preferences JSON file |
 | `NETWORK_INTERFACE` | Autodetected | network card for server |
 | `MAC_ADDRESS` | MAC of the network card | MAC address identifying the device in Home Assistant, keeps the same device when the network card changes |
-| `HOST` | Autodetected | API server IP-Address, can be 0.0.0.0 for all interfaces, but only one network card works for MAC-ADDRESS and ESP protocol |
+| `HOST` | Autodetected | API server IP-Address, can be 0.0.0.0 for all interfaces; the address of the network card is then advertised to Home Assistant, and that card gives the MAC-ADDRESS |
 | `PORT` | `6053` | API server port |
 | `AUDIO_INPUT_DEVICE` | Autodetected | Audio input device name |
 | `AUDIO_OUTPUT_DEVICE` | Autodetected | Audio output device name |

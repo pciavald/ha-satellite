@@ -302,6 +302,9 @@ async def main() -> Optional[Shutdown]:
         print(f"Using host: {args.host}")
         host_ip_address = args.host
 
+    # Resolve the address announced over mDNS (the bind address unless it is 0.0.0.0)
+    advertised_ip_address = _advertised_address(host_ip_address, network_interface)
+
     # Resolve mac
     if args.mac_address:
         mac_address = args.mac_address
@@ -433,7 +436,7 @@ async def main() -> Optional[Shutdown]:
         friendly_name=friendly_name,
         network_interface=network_interface,  # type: ignore[arg-type]
         mac_address=mac_address,
-        ip_address=host_ip_address,  # type: ignore[arg-type]
+        ip_address=advertised_ip_address,  # type: ignore[arg-type]
         version=version,
         esphome_version=esphome_version,
         audio_queue=Queue(),
@@ -575,7 +578,7 @@ async def main() -> Optional[Shutdown]:
         port=args.port,
         name=state.name,
         mac_address=state.mac_address,
-        host_ip_address=host_ip_address,  # type: ignore[arg-type]
+        host_ip_address=advertised_ip_address,  # type: ignore[arg-type]
     )
     await discovery.register_server()
 
@@ -660,6 +663,20 @@ def _setup_logging(args: argparse.Namespace) -> None:
 
 
 # -----------------------------------------------------------------------------
+
+
+def _advertised_address(bind_address: Optional[str], network_interface: Optional[str]) -> Optional[str]:
+    """Return the address to announce: the bind address, or the detected one when bound to all interfaces."""
+    if bind_address != "0.0.0.0":
+        return bind_address
+
+    detected = network.interface_ipv4(network_interface)
+    if not detected:
+        _LOGGER.warning("Bound to 0.0.0.0 but no address was detected on %s, advertising 0.0.0.0", network_interface)
+        return bind_address
+
+    print(f"Advertising IP-Address: {detected}")
+    return detected
 
 
 def _mac_address(value: str) -> str:

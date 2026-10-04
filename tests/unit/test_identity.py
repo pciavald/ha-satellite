@@ -111,3 +111,33 @@ class TestDockerEntrypoint:
     def test_mac_address_passed_when_set(self, tmp_path):
         args = _entrypoint_args(tmp_path, {"MAC_ADDRESS": "aa:bb:cc:dd:ee:ff"})
         assert args[args.index("--mac-address") + 1] == "aa:bb:cc:dd:ee:ff"
+
+
+class TestAdvertisedAddress:
+    def test_specific_bind_address_is_advertised_as_is(self, monkeypatch):
+        interface_ipv4 = MagicMock()
+        monkeypatch.setattr(lva_main.network, "interface_ipv4", interface_ipv4)
+
+        assert lva_main._advertised_address("192.168.1.20", "eth0") == "192.168.1.20"
+        interface_ipv4.assert_not_called()
+
+    def test_all_interfaces_advertise_the_detected_address(self, monkeypatch):
+        monkeypatch.setattr(lva_main.network, "interface_ipv4", MagicMock(return_value="10.1.1.198"))
+        assert lva_main._advertised_address("0.0.0.0", "en13") == "10.1.1.198"
+
+    def test_nothing_detected_keeps_the_old_advertisement(self, monkeypatch, caplog):
+        monkeypatch.setattr(lva_main.network, "interface_ipv4", MagicMock(return_value=None))
+        assert lva_main._advertised_address("0.0.0.0", "eth0") == "0.0.0.0"
+        assert "advertising 0.0.0.0" in caplog.text
+
+    def test_state_holds_the_detected_address_when_bound_to_all(self, monkeypatch, tmp_path):
+        kwargs = resolve_state(monkeypatch, tmp_path, ["--host", "0.0.0.0"])
+        assert kwargs["ip_address"] == "192.168.1.20"
+
+    def test_state_holds_the_detected_address_by_default(self, monkeypatch, tmp_path):
+        kwargs = resolve_state(monkeypatch, tmp_path, [])
+        assert kwargs["ip_address"] == "192.168.1.20"
+
+    def test_state_holds_an_explicit_address(self, monkeypatch, tmp_path):
+        kwargs = resolve_state(monkeypatch, tmp_path, ["--host", "192.168.7.7"])
+        assert kwargs["ip_address"] == "192.168.7.7"

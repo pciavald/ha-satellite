@@ -104,7 +104,7 @@ usage: __main__.py [-h] [--name NAME] [--audio-input-device AUDIO_INPUT_DEVICE] 
 | `--mute-sound`                  | Sound played when muting the assistant                        | `sounds/mute_switch_on.flac`         |
 | `--unmute-sound`                | Sound played when unmuting the assistant                      | `sounds/mute_switch_off.flac`        |
 | `--preferences-file`            | Path to preferences JSON file                                 | `preferences.json`                   |
-| `--host`                        | IP-Address for ESPHome server, use 0.0.0.0 for all            | Autodetected                         |
+| `--host`                        | IP-Address for ESPHome server, use 0.0.0.0 for all (the detected address is advertised) | Autodetected |
 | `--network-interface`           | Network interface for ESPHome server                          | Autodetected                         |
 | `--mac-address`                 | MAC address identifying the device in Home Assistant          | MAC of the network interface         |
 | `--port`                        | Port for ESPHome server                                       | 6053                                 |
