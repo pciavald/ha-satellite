@@ -227,7 +227,7 @@ final class HubTests: XCTestCase {
     var all: [Int16] = []
     var expected = start
     while all.count < samples {
-      let frame = try XCTUnwrap(mic.next(), "PCM")
+      let frame = try XCTUnwrap(mic.next(5), "PCM")
       guard frame.type == .pcm else { continue }
       let (index, values) = try Wire.parseMicPCM(frame.payload)
       if let expected { XCTAssertEqual(index, expected, "contiguous indices") }
